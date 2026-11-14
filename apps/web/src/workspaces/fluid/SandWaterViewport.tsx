@@ -164,9 +164,9 @@ export const SandWaterViewport: React.FC = () => {
         const onPointerDown = (ev: PointerEvent) => {
           if (ev.button !== 0) return;
           if (useLabStore.getState().fluidTool === 'orbit') return;
+          ev.stopImmediatePropagation();
           if (!updateHit(ev)) return;
           pointerActive = true;
-          controls.enabled = false;
           currentHit.copy(hitPoint);
           stirVel.set(0, 0, 0);
         };
@@ -181,14 +181,13 @@ export const SandWaterViewport: React.FC = () => {
           currentHit.copy(hitPoint);
         };
 
-        const onPointerUp = () => {
-          if (!pointerActive) return;
+        const onPointerUp = (ev: PointerEvent) => {
+          if (ev.button !== 0 || !pointerActive) return;
           pointerActive = false;
-          controls.enabled = true;
           stirVel.set(0, 0, 0);
         };
 
-        canvas.addEventListener('pointerdown', onPointerDown);
+        canvas.addEventListener('pointerdown', onPointerDown, { capture: true });
         window.addEventListener('pointermove', onPointerMove);
         window.addEventListener('pointerup', onPointerUp);
 
@@ -235,12 +234,25 @@ export const SandWaterViewport: React.FC = () => {
             .multiply(camera.matrixWorldInverse);
           viewProjArr.set(viewProj.elements);
 
-          if (pointerActive) {
-            if (st.fluidTool === 'pour-water' || st.fluidTool === 'pour-sand') {
-              const kind = st.fluidTool === 'pour-water' ? 'water' : 'sand';
-              const clampedY = Math.max(0.5, Math.min(6.1, currentHit.y));
-              gpuEngine.spawnStream(kind, currentHit.x, clampedY, currentHit.z, 22);
+          if (pointerActive && (st.fluidTool === 'pour-water' || st.fluidTool === 'pour-sand')) {
+            const kind = st.fluidTool === 'pour-water' ? 'water' : 'sand';
+            let sx = currentHit.x;
+            let sz = currentHit.z;
+            const sy = Math.max(0.8, Math.min(6.1, currentHit.y));
+            if (st.fluidContainerMode === 'glass') {
+              const rMax = DEFAULT_GLASS_CONTAINER.glassRTop * 0.78;
+              const rCur = Math.hypot(sx, sz);
+              if (rCur > rMax && rCur > 1e-6) {
+                sx = (sx / rCur) * rMax;
+                sz = (sz / rCur) * rMax;
+              }
+            } else {
+              sx = Math.max(-4.1, Math.min(4.1, sx));
+              sz = Math.max(-1.8, Math.min(1.8, sz));
             }
+            gpuEngine.spawnStream(kind, sx, sy, sz, 22);
+          } else if (!st.fluidConfig.paused && st.fluidAutoPourKind !== 'none') {
+            gpuEngine.spawnStream(st.fluidAutoPourKind, 0, 5.8, 0, 16);
           }
 
           let stirMode: 0 | 1 | 2 = 0;
@@ -285,7 +297,7 @@ export const SandWaterViewport: React.FC = () => {
         loop();
 
         cleanupListeners = () => {
-          canvas.removeEventListener('pointerdown', onPointerDown);
+          canvas.removeEventListener('pointerdown', onPointerDown, { capture: true });
           window.removeEventListener('pointermove', onPointerMove);
           window.removeEventListener('pointerup', onPointerUp);
           window.removeEventListener('resize', onResize);

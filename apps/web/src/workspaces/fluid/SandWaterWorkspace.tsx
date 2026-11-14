@@ -48,6 +48,7 @@ export const SandWaterWorkspace: React.FC = () => {
   const fluidContainerMode = useLabStore((s) => s.fluidContainerMode);
   const fluidTargetParticleCount = useLabStore((s) => s.fluidTargetParticleCount);
   const fluidBackendLabel = useLabStore((s) => s.fluidBackendLabel);
+  const fluidAutoPourKind = useLabStore((s) => s.fluidAutoPourKind);
   const fluidConfig = useLabStore((s) => s.fluidConfig);
   const fluidStats = useLabStore((s) => s.fluidStats);
 
@@ -55,6 +56,7 @@ export const SandWaterWorkspace: React.FC = () => {
   const setFluidTool = useLabStore((s) => s.setFluidTool);
   const setFluidContainerMode = useLabStore((s) => s.setFluidContainerMode);
   const setFluidTargetParticleCount = useLabStore((s) => s.setFluidTargetParticleCount);
+  const setFluidAutoPourKind = useLabStore((s) => s.setFluidAutoPourKind);
   const updateFluidConfig = useLabStore((s) => s.updateFluidConfig);
   const triggerFluidReset = useLabStore((s) => s.triggerFluidReset);
   const triggerFluidClear = useLabStore((s) => s.triggerFluidClear);
@@ -177,6 +179,26 @@ export const SandWaterWorkspace: React.FC = () => {
             >
               <Sparkles size={14} aria-hidden="true" />
               <span>Shake Tank</span>
+            </button>
+          </div>
+          <div className="exp-action-row" style={{ marginTop: 6 }}>
+            <button
+              type="button"
+              className={`btn btn-secondary btn-xs ${fluidAutoPourKind === 'water' ? 'btn-primary' : ''}`}
+              onClick={() =>
+                setFluidAutoPourKind(fluidAutoPourKind === 'water' ? 'none' : 'water')
+              }
+            >
+              {fluidAutoPourKind === 'water' ? 'Stop Faucet (Water)' : 'Auto Faucet: Water'}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-secondary btn-xs ${fluidAutoPourKind === 'sand' ? 'btn-primary' : ''}`}
+              onClick={() =>
+                setFluidAutoPourKind(fluidAutoPourKind === 'sand' ? 'none' : 'sand')
+              }
+            >
+              {fluidAutoPourKind === 'sand' ? 'Stop Faucet (Sand)' : 'Auto Faucet: Sand'}
             </button>
           </div>
           <div className="exp-action-row" style={{ marginTop: 6 }}>

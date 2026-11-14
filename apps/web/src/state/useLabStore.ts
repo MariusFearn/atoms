@@ -176,6 +176,7 @@ export interface LabState {
   fluidResetNonce: number;
   fluidClearNonce: number;
   fluidShakeNonce: number;
+  fluidAutoPourKind: 'none' | 'water' | 'sand';
 
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setProjectName: (name: string) => void;
@@ -294,6 +295,7 @@ export interface LabState {
   setFluidContainerMode: (mode: SandWaterContainerMode) => void;
   setFluidTargetParticleCount: (count: number) => void;
   setFluidBackendLabel: (label: string) => void;
+  setFluidAutoPourKind: (kind: 'none' | 'water' | 'sand') => void;
   updateFluidConfig: (patch: Partial<SandWaterConfig>) => void;
   setFluidStats: (stats: SandWaterStatsSnapshot) => void;
   triggerFluidReset: () => void;
@@ -522,6 +524,7 @@ export const useLabStore = create<LabState>((set, get) => ({
   fluidResetNonce: 0,
   fluidClearNonce: 0,
   fluidShakeNonce: 0,
+  fluidAutoPourKind: 'none',
 
   setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   setProjectName: (projectName) => set({ projectName, hasUnsavedChanges: true }),
@@ -1921,6 +1924,8 @@ export const useLabStore = create<LabState>((set, get) => ({
     })),
 
   setFluidBackendLabel: (fluidBackendLabel) => set({ fluidBackendLabel }),
+
+  setFluidAutoPourKind: (fluidAutoPourKind) => set({ fluidAutoPourKind }),
 
   updateFluidConfig: (patch) =>
     set((s) => ({
