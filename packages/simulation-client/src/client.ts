@@ -3,6 +3,10 @@ import type {
   ExperimentJobInfo,
   ExperimentResults,
   Molecule,
+  NuclearClusterPreset,
+  NuclearForceConfig,
+  NuclearParticle,
+  NuclearSimulationResult,
   QuantumJobConfig,
   QuantumJobInfo,
   QuantumModelPreset,
@@ -17,6 +21,8 @@ import {
   type ApiExperimentResultsDto,
   type ApiMolExportResponseDto,
   type ApiMolImportResponseDto,
+  type ApiNuclearPresetDto,
+  type ApiNuclearSimulationResultDto,
   type ApiQuantumJobDto,
   type ApiQuantumPresetDto,
   type ApiQuantumResultsDto,
@@ -26,6 +32,8 @@ import {
   type RdkitValidationResult,
   fromApiJobDto,
   fromApiMoleculeDto,
+  fromApiNuclearPresetDto,
+  fromApiNuclearSimulationResultDto,
   fromApiPresetDto,
   fromApiQuantumJobDto,
   fromApiQuantumPresetDto,
@@ -33,6 +41,8 @@ import {
   fromApiResultsDto,
   toApiExperimentRequestDto,
   toApiMoleculeDto,
+  toApiNuclearForceConfigDto,
+  toApiNuclearParticleDto,
   toApiQuantumJobRequestDto,
 } from './contracts.js';
 
@@ -391,4 +401,36 @@ export async function getQuantumResults(
     options,
   );
   return fromApiQuantumResultsDto(dto);
+}
+
+export async function listNuclearSandboxPresets(
+  options?: ScienceClientOptions,
+): Promise<NuclearClusterPreset[]> {
+  const dtos = await requestJson<ApiNuclearPresetDto[]>(
+    '/api/v1/sandbox/nuclear/presets',
+    { method: 'GET' },
+    options,
+  );
+  return dtos.map(fromApiNuclearPresetDto);
+}
+
+export async function runNuclearSandboxSimulation(
+  presetId: string,
+  particles: NuclearParticle[],
+  forceConfig: NuclearForceConfig,
+  options?: ScienceClientOptions,
+): Promise<NuclearSimulationResult> {
+  const dto = await requestJson<ApiNuclearSimulationResultDto>(
+    '/api/v1/sandbox/nuclear/simulate',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        preset_id: presetId,
+        particles: particles.map(toApiNuclearParticleDto),
+        force_config: toApiNuclearForceConfigDto(forceConfig),
+      }),
+    },
+    options,
+  );
+  return fromApiNuclearSimulationResultDto(dto);
 }

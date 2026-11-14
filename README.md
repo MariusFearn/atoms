@@ -45,6 +45,14 @@ uv sync
 cd services/science-api && uv run uvicorn app.main:app --reload --port 8000
 ```
 
+### 3. Combined Dev Launcher (Frees Ports 8000 & 5173 Automatically)
+
+```bash
+npm run dev:all
+# or directly:
+./scripts/start-dev.sh
+```
+
 The Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8000`. If `science-api` is not running, the web editor remains fully usable in local editing mode and disables service-dependent RDKit buttons with an explanation.
 
 ## Testing, Typechecking, Linting & Building

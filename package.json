@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "npm --workspace=@matterlab/web run dev",
+    "dev:all": "bash scripts/start-dev.sh",
     "build": "npm --workspace=@matterlab/domain run build && npm --workspace=@matterlab/simulation-client run build && npm --workspace=@matterlab/web run build",
     "test": "npm --workspace=@matterlab/domain run test && npm --workspace=@matterlab/simulation-client run test && npm --workspace=@matterlab/web run test",
     "typecheck": "npm --workspace=@matterlab/domain run typecheck && npm --workspace=@matterlab/simulation-client run typecheck && npm --workspace=@matterlab/web run typecheck",

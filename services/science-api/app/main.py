@@ -7,6 +7,11 @@ from typing import AsyncIterator
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.adapters.nuclear_toy.adapter import (
+    NuclearToyAdapterError,
+    list_nuclear_presets,
+    run_nuclear_toy_simulation,
+)
 from app.adapters.openmm.adapter import (
     OpenMMAdapterError,
     list_presets as list_openmm_presets,
@@ -43,6 +48,9 @@ from app.models.contracts import (
     MolExportResponse,
     MolImportRequest,
     MolImportResponse,
+    NuclearPresetDto,
+    NuclearSimulateRequest,
+    NuclearSimulationResultDto,
     QuantumJobCreateRequest,
     QuantumJobDto,
     QuantumPresetDto,
@@ -68,7 +76,9 @@ BASELINE_ELEMENTS: list[ElementSummary] = [
 ]
 
 
-def _raise_http_error(exc: RdkitAdapterError | OpenMMAdapterError | PyScfAdapterError) -> None:
+def _raise_http_error(
+    exc: RdkitAdapterError | OpenMMAdapterError | PyScfAdapterError | NuclearToyAdapterError,
+) -> None:
     raise HTTPException(
         status_code=exc.http_status,
         detail=ApiErrorDetail(
@@ -171,6 +181,16 @@ def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
                     limitations=[
                         "Closed-shell singlet restricted HF/KS-DFT only; radicals and open-shell spin states are deferred.",
                         "Single-point gas-phase electronic structure at fixed coordinates; approximate finite basis-set methods.",
+                    ],
+                ),
+                AdapterCapability(
+                    adapter="nuclear_toy",
+                    available=True,
+                    version="0.1.0-exploratory",
+                    supported_elements=["proton", "neutron", "alpha"],
+                    supported_operations=["nuclear_cluster_toy_verlet"],
+                    limitations=[
+                        "Exploratory classical N-body toy model at femtometer scale (NOT validated quantum nuclear physics).",
                     ],
                 ),
             ],
@@ -283,6 +303,19 @@ def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
         try:
             return quantum_manager.get_results(job_id)
         except PyScfAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/sandbox/nuclear/presets", response_model=list[NuclearPresetDto])
+    def get_nuclear_sandbox_presets() -> list[NuclearPresetDto]:
+        return list_nuclear_presets()
+
+    @app.post("/api/v1/sandbox/nuclear/simulate", response_model=NuclearSimulationResultDto)
+    def post_nuclear_sandbox_simulate(
+        req: NuclearSimulateRequest,
+    ) -> NuclearSimulationResultDto:
+        try:
+            return run_nuclear_toy_simulation(req)
+        except NuclearToyAdapterError as exc:
             _raise_http_error(exc)
 
     return app

@@ -164,9 +164,9 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
           type="button"
           className={`tab-btn ${workspaceTab === 'atom' ? 'is-active' : ''}`}
           onClick={() => setWorkspaceTab('atom')}
-          title="Deferred in MVP release schedule"
+          title="3D Hydrogenic Standing Waves, Orbitals & Spectral Lines"
         >
-          Atom <span className="tab-tag">Deferred</span>
+          Atom <span className="tab-tag">Wave Lab</span>
         </button>
         <button
           type="button"
@@ -183,6 +183,14 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
           title="Single-Point Quantum Chemistry (PySCF)"
         >
           Quantum <span className="tab-tag">PySCF</span>
+        </button>
+        <button
+          type="button"
+          className={`tab-btn ${workspaceTab === 'nuclear' ? 'is-active' : ''}`}
+          onClick={() => setWorkspaceTab('nuclear')}
+          title="Exploratory Nuclear Cluster & Force Sandbox (Toy Model)"
+        >
+          Nuclear Sandbox <span className="tab-tag">Toy</span>
         </button>
       </nav>
 

@@ -71,18 +71,27 @@ describe('MatterLab Web Application', () => {
     expect(useLabStore.getState().statusBanner?.kind).toBe('error');
   });
 
-  it('switches representation and honestly marks deferred workspaces', () => {
+  it('switches representation and opens Atom Standing-Wave Lab with orbitals and spectral lines', () => {
     render(<App />);
 
     const select = screen.getByLabelText('Visual representation');
     fireEvent.change(select, { target: { value: 'space-filling' } });
     expect(useLabStore.getState().representation).toBe('space-filling');
 
-    fireEvent.click(screen.getByRole('button', { name: /^Atom\s+Deferred$/i }));
-    expect(screen.getByText(/Atom & Orbital Explorer/i)).toBeInTheDocument();
-    expect(screen.getByText(/Deferred from MVP/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Atom\s+Wave Lab$/i }));
+    expect(screen.getByText(/3D Standing-Wave Orbital/i)).toBeInTheDocument();
+    expect(screen.getByText(/Curated Hydrogenic Wave Model/i)).toBeInTheDocument();
+    expect(screen.getByText(/656\.3 nm/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Return to Molecule Editor/i }));
+    fireEvent.change(screen.getByLabelText('Hydrogenic orbital'), {
+      target: { value: '3dz2' },
+    });
+    expect(useLabStore.getState().atomOrbitalId).toBe('3dz2');
+
+    fireEvent.click(screen.getByRole('button', { name: /Probability \(\|ψ\|²\)/i }));
+    expect(useLabStore.getState().atomFieldMode).toBe('probability-density');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Molecule Editor$/i }));
     expect(screen.getByText('H2O')).toBeInTheDocument();
   });
 
@@ -611,6 +620,127 @@ describe('MatterLab Web Application', () => {
       const overlaySelect = screen.getByLabelText('Displayed Scalar Quantity');
       fireEvent.change(overlaySelect, { target: { value: 'electron-density' } });
       expect(useLabStore.getState().quantumFieldOverlay).toBe('electron-density');
+    } finally {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.reject(new Error('Offline in test environment'))),
+      );
+    }
+  });
+
+  it('supports Nuclear Sandbox (Toy Model) disclosures, guided tests, and trajectory playback', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/capabilities')) {
+        return new Response(
+          JSON.stringify({
+            api_version: '0.1.0',
+            adapters: [
+              {
+                adapter: 'nuclear_toy',
+                available: true,
+                version: '0.1.0-exploratory',
+                supported_elements: ['proton', 'neutron', 'alpha'],
+                supported_operations: ['nuclear_cluster_toy_verlet'],
+                limitations: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/sandbox/nuclear/simulate')) {
+        return new Response(
+          JSON.stringify({
+            preset_id: 'be8-two-alpha',
+            model_label: 'Exploratory Toy Classical N-Body Model (Not Quantum Nuclear Physics)',
+            disclaimer: 'Exploratory toy model',
+            assumptions: ['Classical centers'],
+            limitations: ['Not quantum nuclear physics'],
+            particle_ids: ['a1', 'a2'],
+            particle_kinds: ['alpha', 'alpha'],
+            stability_verdict: 'unbound-dissociated',
+            verdict_explanation: 'Cluster broke apart: max pair distance grew from 3.40 fm to 13.80 fm.',
+            initial_total_energy_mev: 1.69,
+            final_total_energy_mev: 1.69,
+            energy_drift_mev: 0.0,
+            final_cluster_energy_mev: 1.69,
+            reference_benchmark: {
+              nuclide: '⁸Be (4p, 4n)',
+              total_binding_energy_mev: 56.5,
+              cluster_binding_energy_mev: 0.0918,
+              stability_summary: 'Unbound (+0.0918 MeV above 2α threshold)',
+              half_life_note: 'Decays into 2α in ~8.19 × 10⁻¹⁷ s',
+              source: 'AME2020 / NNDC NuDat 3.0',
+            },
+            frames: [
+              {
+                frame_index: 0,
+                step: 0,
+                time_fc: 0,
+                kinetic_energy_mev: 0,
+                coulomb_energy_mev: 1.69,
+                nuclear_energy_mev: 0,
+                gravity_energy_mev: -1e-35,
+                potential_energy_mev: 1.69,
+                total_energy_mev: 1.69,
+                min_pair_distance_fm: 3.4,
+                max_pair_distance_fm: 3.4,
+                positions_fm: [[-1.7, 0, 0], [1.7, 0, 0]],
+                force_vectors_mev_fm: [[-0.5, 0, 0], [0.5, 0, 0]],
+              },
+              {
+                frame_index: 1,
+                step: 400,
+                time_fc: 100,
+                kinetic_energy_mev: 1.27,
+                coulomb_energy_mev: 0.42,
+                nuclear_energy_mev: 0,
+                gravity_energy_mev: -2e-36,
+                potential_energy_mev: 0.42,
+                total_energy_mev: 1.69,
+                min_pair_distance_fm: 13.8,
+                max_pair_distance_fm: 13.8,
+                positions_fm: [[-6.9, 0, 0], [6.9, 0, 0]],
+                force_vectors_mev_fm: [[-0.03, 0, 0], [0.03, 0, 0]],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App />);
+      await waitFor(() => {
+        expect(useLabStore.getState().serviceStatus.nuclearToyAvailable).toBe(true);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /^Nuclear Sandbox/i }));
+      expect(screen.getAllByText(/Exploratory Toy Model/i).length).toBeGreaterThanOrEqual(1);
+
+      // Custom builder: add a proton and then reset preset
+      const initialCount = useLabStore.getState().nuclearParticles.length;
+      fireEvent.click(screen.getByRole('button', { name: /\+ Proton \(\+1\)/i }));
+      expect(useLabStore.getState().nuclearParticles).toHaveLength(initialCount + 1);
+      fireEvent.click(screen.getByRole('button', { name: /Reset Preset/i }));
+      expect(useLabStore.getState().nuclearParticles).toHaveLength(initialCount);
+
+      fireEvent.click(screen.getByRole('button', { name: /1\. Can Real Gravity Hold Be-8 Together\?/i }));
+      expect(useLabStore.getState().nuclearPresetId).toBe('be8-two-alpha');
+      expect(useLabStore.getState().nuclearForceConfig.nuclearAttractionMev).toBe(0);
+
+      fireEvent.click(screen.getByRole('button', { name: /Run Toy Simulation/i }));
+      await waitFor(() => {
+        expect(screen.getByText('unbound-dissociated')).toBeInTheDocument();
+        expect(screen.getByText(/1\.690 MeV/)).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /Step forward/i }));
+      expect(useLabStore.getState().nuclearPlaybackFrameIndex).toBe(1);
     } finally {
       vi.stubGlobal(
         'fetch',

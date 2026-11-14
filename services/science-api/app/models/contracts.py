@@ -438,3 +438,123 @@ class QuantumResultsDto(BaseModel):
     assumptions: list[str]
     limitations: list[str]
     warnings: list[str] = Field(default_factory=list)
+
+
+# --- Exploratory Nuclear Cluster & Force Sandbox (Toy Model) ---
+
+NuclearParticleKindLiteral = Literal["proton", "neutron", "alpha"]
+NuclearStabilityVerdictLiteral = Literal[
+    "bound-oscillating",
+    "unbound-dissociated",
+    "collapsed-core",
+]
+
+
+class NuclearParticleInput(BaseModel):
+    id: str = Field(min_length=1, max_length=32)
+    kind: NuclearParticleKindLiteral
+    label: str = Field(min_length=1, max_length=64)
+    charge_e: float = Field(ge=-2.0, le=10.0)
+    mass_mev_c2: float = Field(gt=0.0, le=50000.0)
+    position_fm: tuple[float, float, float]
+    velocity_c: tuple[float, float, float]
+
+    @field_validator("position_fm", "velocity_c")
+    @classmethod
+    def check_finite_vec3(
+        cls, vec: tuple[float, float, float]
+    ) -> tuple[float, float, float]:
+        for val in vec:
+            if not math.isfinite(val):
+                raise ValueError("Particle vector components must be finite numbers.")
+        return vec
+
+
+class NuclearForceConfigInput(BaseModel):
+    coulomb_scale: float = Field(default=1.0, ge=0.0, le=5.0)
+    nuclear_attraction_mev: float = Field(default=84.0, ge=0.0, le=300.0)
+    nuclear_attraction_range_fm: float = Field(default=2.11, ge=0.5, le=6.0)
+    core_repulsion_mev: float = Field(default=475.0, ge=0.0, le=1500.0)
+    core_repulsion_range_fm: float = Field(default=1.43, ge=0.3, le=3.5)
+    gravity_enabled: bool = True
+    gravity_log10_multiplier: float = Field(default=0.0, ge=0.0, le=38.0)
+    damping_per_fc: float = Field(default=0.0, ge=0.0, le=0.5)
+    timestep_fc: float = Field(default=0.25, ge=0.02, le=0.5)
+    total_steps: int = Field(default=400, ge=10, le=2000)
+    report_interval_steps: int = Field(default=4, ge=1, le=50)
+
+    @field_validator(
+        "coulomb_scale",
+        "nuclear_attraction_mev",
+        "nuclear_attraction_range_fm",
+        "core_repulsion_mev",
+        "core_repulsion_range_fm",
+        "gravity_log10_multiplier",
+        "damping_per_fc",
+        "timestep_fc",
+    )
+    @classmethod
+    def check_finite_scalar(cls, val: float) -> float:
+        if not math.isfinite(val):
+            raise ValueError("Force parameter must be finite.")
+        return val
+
+
+class NuclearReferenceBenchmarkDto(BaseModel):
+    nuclide: str
+    total_binding_energy_mev: float
+    cluster_binding_energy_mev: float
+    stability_summary: str
+    half_life_note: str
+    source: str
+
+
+class NuclearPresetDto(BaseModel):
+    id: str
+    name: str
+    subtitle: str
+    description: str
+    particles: list[NuclearParticleInput]
+    cluster_edges: list[tuple[str, str]]
+    recommended_force_config: NuclearForceConfigInput
+    benchmark: NuclearReferenceBenchmarkDto
+
+
+class NuclearSimulateRequest(BaseModel):
+    preset_id: str = Field(min_length=1, max_length=64)
+    particles: list[NuclearParticleInput] = Field(min_length=2, max_length=32)
+    force_config: NuclearForceConfigInput
+
+
+class NuclearTrajectoryFrameDto(BaseModel):
+    frame_index: int
+    step: int
+    time_fc: float
+    kinetic_energy_mev: float
+    coulomb_energy_mev: float
+    nuclear_energy_mev: float
+    gravity_energy_mev: float
+    potential_energy_mev: float
+    total_energy_mev: float
+    min_pair_distance_fm: float
+    max_pair_distance_fm: float
+    positions_fm: list[tuple[float, float, float]]
+    force_vectors_mev_fm: list[tuple[float, float, float]]
+
+
+class NuclearSimulationResultDto(BaseModel):
+    preset_id: str
+    model_label: str
+    disclaimer: str
+    assumptions: list[str]
+    limitations: list[str]
+    particle_ids: list[str]
+    particle_kinds: list[NuclearParticleKindLiteral]
+    stability_verdict: NuclearStabilityVerdictLiteral
+    verdict_explanation: str
+    initial_total_energy_mev: float
+    final_total_energy_mev: float
+    energy_drift_mev: float
+    final_cluster_energy_mev: float
+    reference_benchmark: NuclearReferenceBenchmarkDto | None = None
+    frames: list[NuclearTrajectoryFrameDto]

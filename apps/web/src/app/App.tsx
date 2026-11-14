@@ -6,7 +6,9 @@ import { RightInspector } from '../components/RightInspector';
 import { TopBar } from '../components/TopBar';
 import { LabSceneViewport } from '../scene/LabSceneViewport';
 import { useLabStore } from '../state/useLabStore';
+import { AtomWaveWorkspace } from '../workspaces/atom/AtomWaveWorkspace';
 import { ExperimentWorkspace } from '../workspaces/experiment/ExperimentWorkspace';
+import { NuclearSandboxWorkspace } from '../workspaces/nuclear/NuclearSandboxWorkspace';
 import { QuantumWorkspace } from '../workspaces/quantum/QuantumWorkspace';
 
 interface PendingConfirm {
@@ -17,7 +19,6 @@ interface PendingConfirm {
 
 export const App: React.FC = () => {
   const workspaceTab = useLabStore((s) => s.workspaceTab);
-  const setWorkspaceTab = useLabStore((s) => s.setWorkspaceTab);
   const hasUnsavedChanges = useLabStore((s) => s.hasUnsavedChanges);
   const checkScienceService = useLabStore((s) => s.checkScienceService);
 
@@ -94,25 +95,10 @@ export const App: React.FC = () => {
           <ExperimentWorkspace onRequestProtectedAction={requestProtectedAction} />
         ) : workspaceTab === 'quantum' ? (
           <QuantumWorkspace />
+        ) : workspaceTab === 'nuclear' ? (
+          <NuclearSandboxWorkspace />
         ) : (
-          <section className="deferred-workspace" aria-label="Deferred Workspace">
-            <div className="deferred-card">
-              <span className="badge badge-warn">Deferred from MVP (Section 13)</span>
-              <h1>Atom &amp; Orbital Explorer</h1>
-              <p>
-                Atomic orbital probability-density visualizations and curated isotope/orbital
-                datasets are deferred beyond the initial MVP release so that unsupported
-                approximations are never presented as live quantum calculations.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setWorkspaceTab('molecule')}
-              >
-                Return to Molecule Editor
-              </button>
-            </div>
-          </section>
+          <AtomWaveWorkspace />
         )}
       </main>
 

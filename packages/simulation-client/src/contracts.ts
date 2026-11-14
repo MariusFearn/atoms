@@ -6,6 +6,12 @@ import type {
   ExperimentJobInfo,
   ExperimentResults,
   Molecule,
+  NuclearClusterPreset,
+  NuclearForceConfig,
+  NuclearParticle,
+  NuclearParticleKind,
+  NuclearSimulationResult,
+  NuclearStabilityVerdict,
   QuantumJobConfig,
   QuantumJobInfo,
   QuantumModelPreset,
@@ -681,5 +687,208 @@ export function fromApiQuantumResultsDto(dto: ApiQuantumResultsDto): QuantumResu
     assumptions: dto.assumptions,
     limitations: dto.limitations,
     warnings: dto.warnings,
+  };
+}
+
+// --- Exploratory Nuclear Cluster & Force Sandbox DTOs & Mappers ---
+
+export interface ApiNuclearParticleDto {
+  id: string;
+  kind: NuclearParticleKind;
+  label: string;
+  charge_e: number;
+  mass_mev_c2: number;
+  position_fm: [number, number, number];
+  velocity_c: [number, number, number];
+}
+
+export interface ApiNuclearForceConfigDto {
+  coulomb_scale: number;
+  nuclear_attraction_mev: number;
+  nuclear_attraction_range_fm: number;
+  core_repulsion_mev: number;
+  core_repulsion_range_fm: number;
+  gravity_enabled: boolean;
+  gravity_log10_multiplier: number;
+  damping_per_fc: number;
+  timestep_fc: number;
+  total_steps: number;
+  report_interval_steps: number;
+}
+
+export interface ApiNuclearReferenceBenchmarkDto {
+  nuclide: string;
+  total_binding_energy_mev: number;
+  cluster_binding_energy_mev: number;
+  stability_summary: string;
+  half_life_note: string;
+  source: string;
+}
+
+export interface ApiNuclearPresetDto {
+  id: string;
+  name: string;
+  subtitle: string;
+  description: string;
+  particles: ApiNuclearParticleDto[];
+  cluster_edges: Array<[string, string]>;
+  recommended_force_config: ApiNuclearForceConfigDto;
+  benchmark: ApiNuclearReferenceBenchmarkDto;
+}
+
+export interface ApiNuclearSimulationResultDto {
+  preset_id: string;
+  model_label: string;
+  disclaimer: string;
+  assumptions: string[];
+  limitations: string[];
+  particle_ids: string[];
+  particle_kinds: NuclearParticleKind[];
+  stability_verdict: NuclearStabilityVerdict;
+  verdict_explanation: string;
+  initial_total_energy_mev: number;
+  final_total_energy_mev: number;
+  energy_drift_mev: number;
+  final_cluster_energy_mev: number;
+  reference_benchmark: ApiNuclearReferenceBenchmarkDto | null;
+  frames: Array<{
+    frame_index: number;
+    step: number;
+    time_fc: number;
+    kinetic_energy_mev: number;
+    coulomb_energy_mev: number;
+    nuclear_energy_mev: number;
+    gravity_energy_mev: number;
+    potential_energy_mev: number;
+    total_energy_mev: number;
+    min_pair_distance_fm: number;
+    max_pair_distance_fm: number;
+    positions_fm: Array<[number, number, number]>;
+    force_vectors_mev_fm: Array<[number, number, number]>;
+  }>;
+}
+
+export function toApiNuclearParticleDto(p: NuclearParticle): ApiNuclearParticleDto {
+  return {
+    id: p.id,
+    kind: p.kind,
+    label: p.label,
+    charge_e: p.chargeE,
+    mass_mev_c2: p.massMevC2,
+    position_fm: [...p.positionFm] as [number, number, number],
+    velocity_c: [...p.velocityC] as [number, number, number],
+  };
+}
+
+export function fromApiNuclearParticleDto(dto: ApiNuclearParticleDto): NuclearParticle {
+  return {
+    id: dto.id,
+    kind: dto.kind,
+    label: dto.label,
+    chargeE: dto.charge_e,
+    massMevC2: dto.mass_mev_c2,
+    positionFm: [...dto.position_fm] as [number, number, number],
+    velocityC: [...dto.velocity_c] as [number, number, number],
+  };
+}
+
+export function toApiNuclearForceConfigDto(
+  cfg: NuclearForceConfig,
+): ApiNuclearForceConfigDto {
+  return {
+    coulomb_scale: cfg.coulombScale,
+    nuclear_attraction_mev: cfg.nuclearAttractionMev,
+    nuclear_attraction_range_fm: cfg.nuclearAttractionRangeFm,
+    core_repulsion_mev: cfg.coreRepulsionMev,
+    core_repulsion_range_fm: cfg.coreRepulsionRangeFm,
+    gravity_enabled: cfg.gravityEnabled,
+    gravity_log10_multiplier: cfg.gravityLog10Multiplier,
+    damping_per_fc: cfg.dampingPerFc,
+    timestep_fc: cfg.timestepFc,
+    total_steps: cfg.totalSteps,
+    report_interval_steps: cfg.reportIntervalSteps,
+  };
+}
+
+export function fromApiNuclearForceConfigDto(
+  dto: ApiNuclearForceConfigDto,
+): NuclearForceConfig {
+  return {
+    coulombScale: dto.coulomb_scale,
+    nuclearAttractionMev: dto.nuclear_attraction_mev,
+    nuclearAttractionRangeFm: dto.nuclear_attraction_range_fm,
+    coreRepulsionMev: dto.core_repulsion_mev,
+    coreRepulsionRangeFm: dto.core_repulsion_range_fm,
+    gravityEnabled: dto.gravity_enabled,
+    gravityLog10Multiplier: dto.gravity_log10_multiplier,
+    dampingPerFc: dto.damping_per_fc,
+    timestepFc: dto.timestep_fc,
+    totalSteps: dto.total_steps,
+    reportIntervalSteps: dto.report_interval_steps,
+  };
+}
+
+export function fromApiNuclearPresetDto(dto: ApiNuclearPresetDto): NuclearClusterPreset {
+  return {
+    id: dto.id,
+    name: dto.name,
+    subtitle: dto.subtitle,
+    description: dto.description,
+    particles: dto.particles.map(fromApiNuclearParticleDto),
+    clusterEdges: dto.cluster_edges,
+    recommendedForceConfig: fromApiNuclearForceConfigDto(dto.recommended_force_config),
+    benchmark: {
+      nuclide: dto.benchmark.nuclide,
+      totalBindingEnergyMev: dto.benchmark.total_binding_energy_mev,
+      clusterBindingEnergyMev: dto.benchmark.cluster_binding_energy_mev,
+      stabilitySummary: dto.benchmark.stability_summary,
+      halfLifeNote: dto.benchmark.half_life_note,
+      source: dto.benchmark.source,
+    },
+  };
+}
+
+export function fromApiNuclearSimulationResultDto(
+  dto: ApiNuclearSimulationResultDto,
+): NuclearSimulationResult {
+  return {
+    presetId: dto.preset_id,
+    modelLabel: dto.model_label,
+    disclaimer: dto.disclaimer,
+    assumptions: dto.assumptions,
+    limitations: dto.limitations,
+    particleIds: dto.particle_ids,
+    particleKinds: dto.particle_kinds,
+    stabilityVerdict: dto.stability_verdict,
+    verdictExplanation: dto.verdict_explanation,
+    initialTotalEnergyMev: dto.initial_total_energy_mev,
+    finalTotalEnergyMev: dto.final_total_energy_mev,
+    energyDriftMev: dto.energy_drift_mev,
+    finalClusterEnergyMev: dto.final_cluster_energy_mev,
+    referenceBenchmark: dto.reference_benchmark
+      ? {
+          nuclide: dto.reference_benchmark.nuclide,
+          totalBindingEnergyMev: dto.reference_benchmark.total_binding_energy_mev,
+          clusterBindingEnergyMev: dto.reference_benchmark.cluster_binding_energy_mev,
+          stabilitySummary: dto.reference_benchmark.stability_summary,
+          halfLifeNote: dto.reference_benchmark.half_life_note,
+          source: dto.reference_benchmark.source,
+        }
+      : null,
+    frames: dto.frames.map((f) => ({
+      frameIndex: f.frame_index,
+      step: f.step,
+      timeFc: f.time_fc,
+      kineticEnergyMev: f.kinetic_energy_mev,
+      coulombEnergyMev: f.coulomb_energy_mev,
+      nuclearEnergyMev: f.nuclear_energy_mev,
+      gravityEnergyMev: f.gravity_energy_mev,
+      potentialEnergyMev: f.potential_energy_mev,
+      totalEnergyMev: f.total_energy_mev,
+      minPairDistanceFm: f.min_pair_distance_fm,
+      maxPairDistanceFm: f.max_pair_distance_fm,
+      positionsFm: f.positions_fm,
+      forceVectorsMevFm: f.force_vectors_mev_fm,
+    })),
   };
 }

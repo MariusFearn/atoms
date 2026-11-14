@@ -1,13 +1,25 @@
 import { create } from 'zustand';
 import {
   type Atom,
+  type AtomFieldDisplayMode,
   type BondOrder,
   type ColorPaletteMode,
   EXAMPLE_MOLECULES,
   type ExperimentConfig,
   type ExperimentJobInfo,
   type ExperimentResults,
+  type HydrogenicOrbitalId,
   type Molecule,
+  NUCLEAR_GUIDED_EXPERIMENTS,
+  NUCLEAR_PRESETS,
+  ALPHA_MASS_MEV_C2,
+  NEUTRON_MASS_MEV_C2,
+  PROTON_MASS_MEV_C2,
+  type NuclearClusterPreset,
+  type NuclearForceConfig,
+  type NuclearParticle,
+  type NuclearParticleKind,
+  type NuclearSimulationResult,
   PROJECT_SCHEMA_VERSION,
   type ProjectFileV1,
   type QuantumJobConfig,
@@ -20,6 +32,7 @@ import {
   bondPairKey,
   cloneMolecule,
   createEmptyMolecule,
+  getNuclearPresetById,
   parseProject,
   serializeProject,
   validateChemistryProvisional,
@@ -40,13 +53,14 @@ import {
   importMolBlockWithRdkit,
   listQuantumPresets,
   listSimulationPresets,
+  runNuclearSandboxSimulation,
   submitExperimentJob,
   submitQuantumJob,
   validateMoleculeWithRdkit,
 } from '@matterlab/simulation-client';
 
 export type EditorTool = 'select' | 'place-atom' | 'bond';
-export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum';
+export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum' | 'nuclear';
 export type QuantumFieldOverlayMode = 'none' | 'homo-amplitude-phase' | 'electron-density';
 
 export interface ServiceStatusState {
@@ -58,6 +72,7 @@ export interface ServiceStatusState {
   openmmVersion: string | null;
   pyscfAvailable: boolean;
   pyscfVersion: string | null;
+  nuclearToyAvailable: boolean;
   detail: string;
 }
 
@@ -113,6 +128,28 @@ export interface LabState {
   activeQuantumJob: QuantumJobInfo | null;
   activeQuantumResults: QuantumResults | null;
   quantumFieldOverlay: QuantumFieldOverlayMode;
+
+  nuclearPresets: readonly NuclearClusterPreset[];
+  nuclearPresetId: string;
+  nuclearParticles: NuclearParticle[];
+  nuclearEdges: Array<[string, string]>;
+  selectedNuclearParticleId: string | null;
+  nuclearForceConfig: NuclearForceConfig;
+  nuclearResult: NuclearSimulationResult | null;
+  nuclearPlaybackFrameIndex: number;
+  isPlayingNuclear: boolean;
+  nuclearGuidedExperimentId: string | null;
+  showNuclearEdges: boolean;
+  showNuclearForceArrows: boolean;
+
+  atomElementSymbol: string;
+  atomOrbitalId: HydrogenicOrbitalId;
+  atomFieldMode: AtomFieldDisplayMode;
+  atomAnimateWave: boolean;
+  atomSlicePlane: boolean;
+  atomShowDipoleLines: boolean;
+  atomTransitionUpperN: number;
+  atomTransitionLowerN: number;
 
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setProjectName: (name: string) => void;
@@ -194,6 +231,36 @@ export interface LabState {
   setQuantumFieldOverlay: (mode: QuantumFieldOverlayMode) => void;
   runQuantumCalculation: () => Promise<void>;
   cancelActiveQuantumJob: () => Promise<void>;
+
+  selectNuclearPreset: (presetId: string) => void;
+  selectNuclearParticle: (particleId: string | null) => void;
+  addNuclearParticle: (kind: NuclearParticleKind) => void;
+  updateNuclearParticle: (
+    particleId: string,
+    patch: {
+      positionFm?: [number, number, number];
+      velocityC?: [number, number, number];
+    },
+  ) => void;
+  deleteNuclearParticle: (particleId: string) => void;
+  resetNuclearPresetParticles: () => void;
+  updateNuclearForceConfig: (patch: Partial<NuclearForceConfig>) => void;
+  applyNuclearGuidedExperiment: (experimentId: string) => void;
+  runNuclearSimulation: () => Promise<void>;
+  setNuclearPlaybackFrameIndex: (index: number) => void;
+  stepNuclearPlayback: (delta: number) => void;
+  toggleNuclearPlayback: () => void;
+  resetNuclearPlayback: () => void;
+  toggleNuclearEdges: () => void;
+  toggleNuclearForceArrows: () => void;
+
+  setAtomElementSymbol: (symbol: string) => void;
+  setAtomOrbitalId: (orbitalId: HydrogenicOrbitalId) => void;
+  setAtomFieldMode: (mode: AtomFieldDisplayMode) => void;
+  toggleAtomAnimateWave: () => void;
+  toggleAtomSlicePlane: () => void;
+  toggleAtomShowDipoleLines: () => void;
+  setAtomTransitionLevels: (upperN: number, lowerN: number) => void;
 }
 
 let revisionCounter = 1;
@@ -296,6 +363,8 @@ const DEFAULT_QUANTUM_CONFIG: QuantumJobConfig = {
   computeFields: true,
 };
 
+const DEFAULT_NUCLEAR_PRESET = NUCLEAR_PRESETS[1] ?? NUCLEAR_PRESETS[0]!;
+
 let activePollTimer: ReturnType<typeof setTimeout> | null = null;
 let activeQuantumPollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -353,6 +422,7 @@ export const useLabStore = create<LabState>((set, get) => ({
     openmmVersion: null,
     pyscfAvailable: false,
     pyscfVersion: null,
+    nuclearToyAvailable: false,
     detail: 'Connecting to optional local science-api.',
   },
 
@@ -370,6 +440,32 @@ export const useLabStore = create<LabState>((set, get) => ({
   activeQuantumJob: null,
   activeQuantumResults: null,
   quantumFieldOverlay: 'homo-amplitude-phase',
+
+  nuclearPresets: NUCLEAR_PRESETS,
+  nuclearPresetId: DEFAULT_NUCLEAR_PRESET.id,
+  nuclearParticles: DEFAULT_NUCLEAR_PRESET.particles.map((p) => ({
+    ...p,
+    positionFm: [...p.positionFm] as [number, number, number],
+    velocityC: [...p.velocityC] as [number, number, number],
+  })),
+  nuclearEdges: DEFAULT_NUCLEAR_PRESET.clusterEdges.map(([a, b]) => [a, b] as [string, string]),
+  selectedNuclearParticleId: DEFAULT_NUCLEAR_PRESET.particles[0]?.id ?? null,
+  nuclearForceConfig: { ...DEFAULT_NUCLEAR_PRESET.recommendedForceConfig },
+  nuclearResult: null,
+  nuclearPlaybackFrameIndex: 0,
+  isPlayingNuclear: false,
+  nuclearGuidedExperimentId: null,
+  showNuclearEdges: true,
+  showNuclearForceArrows: true,
+
+  atomElementSymbol: 'C',
+  atomOrbitalId: '2pz',
+  atomFieldMode: 'amplitude-phase',
+  atomAnimateWave: true,
+  atomSlicePlane: false,
+  atomShowDipoleLines: true,
+  atomTransitionUpperN: 3,
+  atomTransitionLowerN: 2,
 
   setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   setProjectName: (projectName) => set({ projectName, hasUnsavedChanges: true }),
@@ -774,13 +870,16 @@ export const useLabStore = create<LabState>((set, get) => ({
       const rdkit = data.adapters.find((a) => a.adapter === 'rdkit');
       const openmm = data.adapters.find((a) => a.adapter === 'openmm');
       const pyscf = data.adapters.find((a) => a.adapter === 'pyscf');
+      const nuclearToy = data.adapters.find((a) => a.adapter === 'nuclear_toy');
       const rdkitAvailable = rdkit?.available ?? false;
       const openmmAvailable = openmm?.available ?? false;
       const pyscfAvailable = pyscf?.available ?? false;
+      const nuclearToyAvailable = nuclearToy?.available ?? false;
       const parts: string[] = [`Science API v${data.api_version}`];
       if (rdkitAvailable) parts.push(`RDKit ${rdkit?.version ?? ''}`.trim());
       if (openmmAvailable) parts.push(`OpenMM ${openmm?.version ?? ''}`.trim());
       if (pyscfAvailable) parts.push(`PySCF ${pyscf?.version ?? ''}`.trim());
+      if (nuclearToyAvailable) parts.push('Nuclear Toy');
       set({
         serviceStatus: {
           state: 'connected',
@@ -791,7 +890,8 @@ export const useLabStore = create<LabState>((set, get) => ({
           openmmVersion: openmm?.version ?? null,
           pyscfAvailable,
           pyscfVersion: pyscf?.version ?? null,
-          detail: 'RDKit, OpenMM, and PySCF scientific adapters connected.',
+          nuclearToyAvailable,
+          detail: 'Science API adapters connected.',
         },
       });
       if (openmmAvailable) {
@@ -811,8 +911,9 @@ export const useLabStore = create<LabState>((set, get) => ({
           openmmVersion: null,
           pyscfAvailable: false,
           pyscfVersion: null,
+          nuclearToyAvailable: false,
           detail:
-            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit, OpenMM, and PySCF actions are disabled.',
+            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit, OpenMM, PySCF, and Nuclear Sandbox actions are disabled.',
         },
       });
     }
@@ -862,6 +963,7 @@ export const useLabStore = create<LabState>((set, get) => ({
             openmmVersion: null,
             pyscfAvailable: false,
             pyscfVersion: null,
+            nuclearToyAvailable: false,
             detail:
               'Lost connection to Science API. Local editing and JSON save/load remain available.',
           },
@@ -1469,5 +1571,264 @@ export const useLabStore = create<LabState>((set, get) => ({
         },
       });
     }
+  },
+
+  selectNuclearPreset: (presetId) => {
+    const preset = getNuclearPresetById(presetId);
+    set({
+      nuclearPresetId: preset.id,
+      nuclearParticles: preset.particles.map((p) => ({
+        ...p,
+        positionFm: [...p.positionFm] as [number, number, number],
+        velocityC: [...p.velocityC] as [number, number, number],
+      })),
+      nuclearEdges: preset.clusterEdges.map(([a, b]) => [a, b] as [string, string]),
+      selectedNuclearParticleId: preset.particles[0]?.id ?? null,
+      nuclearForceConfig: { ...preset.recommendedForceConfig },
+      nuclearResult: null,
+      nuclearPlaybackFrameIndex: 0,
+      isPlayingNuclear: false,
+      nuclearGuidedExperimentId: null,
+    });
+  },
+
+  selectNuclearParticle: (particleId) =>
+    set({ selectedNuclearParticleId: particleId }),
+
+  addNuclearParticle: (kind) =>
+    set((state) => {
+      const existingIds = new Set(state.nuclearParticles.map((p) => p.id));
+      const prefix = kind === 'alpha' ? 'a' : kind === 'proton' ? 'p' : 'n';
+      let idx = state.nuclearParticles.filter((p) => p.kind === kind).length + 1;
+      while (existingIds.has(`${prefix}${idx}`)) {
+        idx += 1;
+      }
+      const id = `${prefix}${idx}`;
+      const angle = state.nuclearParticles.length * 1.1;
+      const radius = 3.2 + (state.nuclearParticles.length % 3) * 0.6;
+      const pos: [number, number, number] = [
+        Number((Math.cos(angle) * radius).toFixed(2)),
+        Number((((state.nuclearParticles.length % 2) - 0.5) * 1.2).toFixed(2)),
+        Number((Math.sin(angle) * radius).toFixed(2)),
+      ];
+      const chargeE = kind === 'alpha' ? 2 : kind === 'proton' ? 1 : 0;
+      const massMevC2 =
+        kind === 'alpha'
+          ? ALPHA_MASS_MEV_C2
+          : kind === 'proton'
+            ? PROTON_MASS_MEV_C2
+            : NEUTRON_MASS_MEV_C2;
+      const label =
+        kind === 'alpha' ? `α${idx}` : kind === 'proton' ? `p${idx} (+1)` : `n${idx} (0)`;
+
+      const nextParticle: NuclearParticle = {
+        id,
+        kind,
+        label,
+        chargeE,
+        massMevC2,
+        positionFm: pos,
+        velocityC: [0, 0, 0],
+      };
+
+      return {
+        nuclearParticles: [...state.nuclearParticles, nextParticle],
+        selectedNuclearParticleId: id,
+        nuclearResult: null,
+        nuclearPlaybackFrameIndex: 0,
+        isPlayingNuclear: false,
+      };
+    }),
+
+  updateNuclearParticle: (particleId, patch) =>
+    set((state) => ({
+      nuclearParticles: state.nuclearParticles.map((p) =>
+        p.id === particleId
+          ? {
+              ...p,
+              ...(patch.positionFm
+                ? { positionFm: [...patch.positionFm] as [number, number, number] }
+                : {}),
+              ...(patch.velocityC
+                ? { velocityC: [...patch.velocityC] as [number, number, number] }
+                : {}),
+            }
+          : p,
+      ),
+      nuclearResult: null,
+      nuclearPlaybackFrameIndex: 0,
+      isPlayingNuclear: false,
+    })),
+
+  deleteNuclearParticle: (particleId) =>
+    set((state) => {
+      if (state.nuclearParticles.length <= 2) {
+        return {
+          statusBanner: {
+            kind: 'warning',
+            message: 'Nuclear Sandbox requires at least 2 particles.',
+          },
+        };
+      }
+      const nextParticles = state.nuclearParticles.filter((p) => p.id !== particleId);
+      const nextEdges = state.nuclearEdges.filter(
+        ([a, b]) => a !== particleId && b !== particleId,
+      );
+      return {
+        nuclearParticles: nextParticles,
+        nuclearEdges: nextEdges,
+        selectedNuclearParticleId:
+          state.selectedNuclearParticleId === particleId
+            ? (nextParticles[0]?.id ?? null)
+            : state.selectedNuclearParticleId,
+        nuclearResult: null,
+        nuclearPlaybackFrameIndex: 0,
+        isPlayingNuclear: false,
+      };
+    }),
+
+  resetNuclearPresetParticles: () => {
+    const preset = getNuclearPresetById(get().nuclearPresetId);
+    set({
+      nuclearParticles: preset.particles.map((p) => ({
+        ...p,
+        positionFm: [...p.positionFm] as [number, number, number],
+        velocityC: [...p.velocityC] as [number, number, number],
+      })),
+      nuclearEdges: preset.clusterEdges.map(([a, b]) => [a, b] as [string, string]),
+      selectedNuclearParticleId: preset.particles[0]?.id ?? null,
+      nuclearResult: null,
+      nuclearPlaybackFrameIndex: 0,
+      isPlayingNuclear: false,
+    });
+  },
+
+  updateNuclearForceConfig: (patch) =>
+    set((state) => ({
+      nuclearForceConfig: {
+        ...state.nuclearForceConfig,
+        ...patch,
+      },
+      nuclearGuidedExperimentId: null,
+    })),
+
+  applyNuclearGuidedExperiment: (experimentId) => {
+    const exp = NUCLEAR_GUIDED_EXPERIMENTS.find((e) => e.id === experimentId);
+    if (!exp) return;
+    const preset = getNuclearPresetById(exp.presetId);
+    set({
+      nuclearPresetId: preset.id,
+      nuclearParticles: preset.particles.map((p) => ({
+        ...p,
+        positionFm: [...p.positionFm] as [number, number, number],
+        velocityC: [...p.velocityC] as [number, number, number],
+      })),
+      nuclearEdges: preset.clusterEdges.map(([a, b]) => [a, b] as [string, string]),
+      selectedNuclearParticleId: preset.particles[0]?.id ?? null,
+      nuclearForceConfig: {
+        ...preset.recommendedForceConfig,
+        ...exp.forceOverrides,
+      },
+      nuclearResult: null,
+      nuclearPlaybackFrameIndex: 0,
+      isPlayingNuclear: false,
+      nuclearGuidedExperimentId: exp.id,
+      statusBanner: {
+        kind: 'info',
+        message: `Loaded guided test: ${exp.title}`,
+      },
+    });
+  },
+
+  runNuclearSimulation: async () => {
+    const state = get();
+    const preset = getNuclearPresetById(state.nuclearPresetId);
+    set({
+      isScienceBusy: true,
+      isPlayingNuclear: false,
+      nuclearPlaybackFrameIndex: 0,
+    });
+    try {
+      const result = await runNuclearSandboxSimulation(
+        preset.id,
+        state.nuclearParticles,
+        state.nuclearForceConfig,
+      );
+      set({
+        isScienceBusy: false,
+        nuclearResult: result,
+        nuclearPlaybackFrameIndex: 0,
+        isPlayingNuclear: result.frames.length > 1,
+        statusBanner: {
+          kind: result.stabilityVerdict === 'bound-oscillating' ? 'info' : 'warning',
+          message: `Nuclear Toy Sandbox (${preset.name}): ${result.stabilityVerdict} — ${result.verdictExplanation}`,
+        },
+      });
+    } catch (err) {
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'error',
+          message:
+            err instanceof Error
+              ? err.message
+              : 'Failed to run nuclear sandbox simulation.',
+        },
+      });
+    }
+  },
+
+  setNuclearPlaybackFrameIndex: (index) =>
+    set((state) => {
+      const count = state.nuclearResult?.frames.length ?? 0;
+      if (count === 0) return { nuclearPlaybackFrameIndex: 0 };
+      return {
+        nuclearPlaybackFrameIndex: Math.max(0, Math.min(count - 1, index)),
+      };
+    }),
+
+  stepNuclearPlayback: (delta) =>
+    set((state) => {
+      const count = state.nuclearResult?.frames.length ?? 0;
+      if (count === 0) return {};
+      return {
+        nuclearPlaybackFrameIndex: Math.max(
+          0,
+          Math.min(count - 1, state.nuclearPlaybackFrameIndex + delta),
+        ),
+        isPlayingNuclear: false,
+      };
+    }),
+
+  toggleNuclearPlayback: () =>
+    set((state) => {
+      const count = state.nuclearResult?.frames.length ?? 0;
+      if (count <= 1) return { isPlayingNuclear: false };
+      if (!state.isPlayingNuclear && state.nuclearPlaybackFrameIndex >= count - 1) {
+        return { isPlayingNuclear: true, nuclearPlaybackFrameIndex: 0 };
+      }
+      return { isPlayingNuclear: !state.isPlayingNuclear };
+    }),
+
+  resetNuclearPlayback: () =>
+    set({ nuclearPlaybackFrameIndex: 0, isPlayingNuclear: false }),
+
+  toggleNuclearEdges: () =>
+    set((s) => ({ showNuclearEdges: !s.showNuclearEdges })),
+
+  toggleNuclearForceArrows: () =>
+    set((s) => ({ showNuclearForceArrows: !s.showNuclearForceArrows })),
+
+  setAtomElementSymbol: (atomElementSymbol) => set({ atomElementSymbol }),
+  setAtomOrbitalId: (atomOrbitalId) => set({ atomOrbitalId }),
+  setAtomFieldMode: (atomFieldMode) => set({ atomFieldMode }),
+  toggleAtomAnimateWave: () => set((s) => ({ atomAnimateWave: !s.atomAnimateWave })),
+  toggleAtomSlicePlane: () => set((s) => ({ atomSlicePlane: !s.atomSlicePlane })),
+  toggleAtomShowDipoleLines: () =>
+    set((s) => ({ atomShowDipoleLines: !s.atomShowDipoleLines })),
+  setAtomTransitionLevels: (upperN, lowerN) => {
+    const safeLower = Math.max(1, Math.min(4, Math.floor(lowerN)));
+    const safeUpper = Math.max(safeLower + 1, Math.min(6, Math.floor(upperN)));
+    set({ atomTransitionUpperN: safeUpper, atomTransitionLowerN: safeLower });
   },
 }));

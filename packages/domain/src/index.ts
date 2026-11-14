@@ -5,3 +5,5 @@ export * from './examples.js';
 export * from './persistence.js';
 export * from './simulation.js';
 export * from './quantum.js';
+export * from './nuclear.js';
+export * from './atomWave.js';
