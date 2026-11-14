@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import {
+  DEFAULT_SAND_WATER_CONFIG,
   type Atom,
   type AtomFieldDisplayMode,
   type BondOrder,
@@ -28,6 +29,8 @@ import {
   type QuantumModelPreset,
   type QuantumResults,
   type RepresentationMode,
+  type SandWaterConfig,
+  type SandWaterPresetId,
   type SimulationModelPreset,
   type StructureValidationReport,
   bondPairKey,
@@ -61,8 +64,17 @@ import {
 } from '@matterlab/simulation-client';
 
 export type EditorTool = 'select' | 'place-atom' | 'bond';
-export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum' | 'nuclear';
+export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum' | 'nuclear' | 'fluid';
 export type QuantumFieldOverlayMode = 'none' | 'homo-amplitude-phase' | 'electron-density';
+export type SandWaterTool = 'stir' | 'pour-water' | 'pour-sand' | 'orbit';
+
+export interface SandWaterStatsSnapshot {
+  waterCount: number;
+  sandCount: number;
+  avgSandY: number;
+  avgWaterY: number;
+  kineticEnergy: number;
+}
 
 export interface ServiceStatusState {
   state: 'checking' | 'connected' | 'offline';
@@ -152,6 +164,14 @@ export interface LabState {
   atomShowDipoleLines: boolean;
   atomTransitionUpperN: number;
   atomTransitionLowerN: number;
+
+  fluidPresetId: SandWaterPresetId;
+  fluidTool: SandWaterTool;
+  fluidConfig: SandWaterConfig;
+  fluidStats: SandWaterStatsSnapshot;
+  fluidResetNonce: number;
+  fluidClearNonce: number;
+  fluidShakeNonce: number;
 
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setProjectName: (name: string) => void;
@@ -264,6 +284,14 @@ export interface LabState {
   toggleAtomSlicePlane: () => void;
   toggleAtomShowDipoleLines: () => void;
   setAtomTransitionLevels: (upperN: number, lowerN: number) => void;
+
+  setFluidPreset: (presetId: SandWaterPresetId) => void;
+  setFluidTool: (tool: SandWaterTool) => void;
+  updateFluidConfig: (patch: Partial<SandWaterConfig>) => void;
+  setFluidStats: (stats: SandWaterStatsSnapshot) => void;
+  triggerFluidReset: () => void;
+  triggerFluidClear: () => void;
+  triggerFluidShake: () => void;
 }
 
 let revisionCounter = 1;
@@ -470,6 +498,20 @@ export const useLabStore = create<LabState>((set, get) => ({
   atomShowDipoleLines: true,
   atomTransitionUpperN: 3,
   atomTransitionLowerN: 2,
+
+  fluidPresetId: 'sand-into-water',
+  fluidTool: 'pour-water',
+  fluidConfig: { ...DEFAULT_SAND_WATER_CONFIG },
+  fluidStats: {
+    waterCount: 0,
+    sandCount: 0,
+    avgSandY: 0,
+    avgWaterY: 0,
+    kineticEnergy: 0,
+  },
+  fluidResetNonce: 0,
+  fluidClearNonce: 0,
+  fluidShakeNonce: 0,
 
   setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   setProjectName: (projectName) => set({ projectName, hasUnsavedChanges: true }),
@@ -1836,4 +1878,36 @@ export const useLabStore = create<LabState>((set, get) => ({
     const safeUpper = Math.max(safeLower + 1, Math.min(6, Math.floor(upperN)));
     set({ atomTransitionUpperN: safeUpper, atomTransitionLowerN: safeLower });
   },
+
+  setFluidPreset: (fluidPresetId) =>
+    set((s) => ({
+      fluidPresetId,
+      fluidConfig: {
+        ...s.fluidConfig,
+        hasObstacle: fluidPresetId === 'obstacle-splash',
+        paused: false,
+      },
+      fluidResetNonce: s.fluidResetNonce + 1,
+    })),
+
+  setFluidTool: (fluidTool) => set({ fluidTool }),
+
+  updateFluidConfig: (patch) =>
+    set((s) => ({
+      fluidConfig: { ...s.fluidConfig, ...patch },
+    })),
+
+  setFluidStats: (fluidStats) => set({ fluidStats }),
+
+  triggerFluidReset: () =>
+    set((s) => ({
+      fluidConfig: { ...s.fluidConfig, paused: false },
+      fluidResetNonce: s.fluidResetNonce + 1,
+    })),
+
+  triggerFluidClear: () =>
+    set((s) => ({ fluidClearNonce: s.fluidClearNonce + 1 })),
+
+  triggerFluidShake: () =>
+    set((s) => ({ fluidShakeNonce: s.fluidShakeNonce + 1 })),
 }));

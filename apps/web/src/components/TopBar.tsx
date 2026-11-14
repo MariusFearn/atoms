@@ -192,6 +192,14 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         >
           Nuclear Sandbox <span className="tab-tag">Toy</span>
         </button>
+        <button
+          type="button"
+          className={`tab-btn ${workspaceTab === 'fluid' ? 'is-active' : ''}`}
+          onClick={() => setWorkspaceTab('fluid')}
+          title="Interactive 60 FPS Macroscopic Sand & Water Sandbox (DEM + SPH)"
+        >
+          Sand &amp; Water <span className="tab-tag">Macro 3D</span>
+        </button>
       </nav>
 
       <div className="topbar-section topbar-actions">

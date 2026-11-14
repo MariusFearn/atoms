@@ -756,4 +756,22 @@ describe('MatterLab Web Application', () => {
       );
     }
   });
+
+  it('opens Sand & Water Macro 3D workspace, switches presets/tools, and updates config', () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Sand & Water/i }));
+    expect(screen.getAllByText(/Macroscopic Scale \(DEM \+ SPH\)/i).length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.change(screen.getByLabelText('Sand and water preset'), {
+      target: { value: 'dam-break' },
+    });
+    expect(useLabStore.getState().fluidPresetId).toBe('dam-break');
+
+    fireEvent.click(screen.getByRole('button', { name: /Stir \/ Push/i }));
+    expect(useLabStore.getState().fluidTool).toBe('stir');
+
+    fireEvent.click(screen.getByRole('button', { name: /Zero-G Float/i }));
+    expect(useLabStore.getState().fluidConfig.gravityY).toBe(0);
+  });
 });

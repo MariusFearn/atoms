@@ -8,6 +8,7 @@ import { LabSceneViewport } from '../scene/LabSceneViewport';
 import { useLabStore } from '../state/useLabStore';
 import { AtomWaveWorkspace } from '../workspaces/atom/AtomWaveWorkspace';
 import { ExperimentWorkspace } from '../workspaces/experiment/ExperimentWorkspace';
+import { SandWaterWorkspace } from '../workspaces/fluid/SandWaterWorkspace';
 import { NuclearSandboxWorkspace } from '../workspaces/nuclear/NuclearSandboxWorkspace';
 import { QuantumWorkspace } from '../workspaces/quantum/QuantumWorkspace';
 
@@ -97,6 +98,8 @@ export const App: React.FC = () => {
           <QuantumWorkspace />
         ) : workspaceTab === 'nuclear' ? (
           <NuclearSandboxWorkspace />
+        ) : workspaceTab === 'fluid' ? (
+          <SandWaterWorkspace />
         ) : (
           <AtomWaveWorkspace />
         )}
