@@ -773,5 +773,13 @@ describe('MatterLab Web Application', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Zero-G Float/i }));
     expect(useLabStore.getState().fluidConfig.gravityY).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Lab Tank$/i }));
+    expect(useLabStore.getState().fluidContainerMode).toBe('tank');
+
+    fireEvent.change(screen.getByLabelText('GPU preset particle count'), {
+      target: { value: '40000' },
+    });
+    expect(useLabStore.getState().fluidTargetParticleCount).toBe(40000);
   });
 });

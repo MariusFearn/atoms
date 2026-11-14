@@ -67,6 +67,7 @@ export type EditorTool = 'select' | 'place-atom' | 'bond';
 export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum' | 'nuclear' | 'fluid';
 export type QuantumFieldOverlayMode = 'none' | 'homo-amplitude-phase' | 'electron-density';
 export type SandWaterTool = 'stir' | 'pour-water' | 'pour-sand' | 'orbit';
+export type SandWaterContainerMode = 'glass' | 'tank';
 
 export interface SandWaterStatsSnapshot {
   waterCount: number;
@@ -167,6 +168,9 @@ export interface LabState {
 
   fluidPresetId: SandWaterPresetId;
   fluidTool: SandWaterTool;
+  fluidContainerMode: SandWaterContainerMode;
+  fluidTargetParticleCount: number;
+  fluidBackendLabel: string;
   fluidConfig: SandWaterConfig;
   fluidStats: SandWaterStatsSnapshot;
   fluidResetNonce: number;
@@ -287,6 +291,9 @@ export interface LabState {
 
   setFluidPreset: (presetId: SandWaterPresetId) => void;
   setFluidTool: (tool: SandWaterTool) => void;
+  setFluidContainerMode: (mode: SandWaterContainerMode) => void;
+  setFluidTargetParticleCount: (count: number) => void;
+  setFluidBackendLabel: (label: string) => void;
   updateFluidConfig: (patch: Partial<SandWaterConfig>) => void;
   setFluidStats: (stats: SandWaterStatsSnapshot) => void;
   triggerFluidReset: () => void;
@@ -501,6 +508,9 @@ export const useLabStore = create<LabState>((set, get) => ({
 
   fluidPresetId: 'sand-into-water',
   fluidTool: 'pour-water',
+  fluidContainerMode: 'glass',
+  fluidTargetParticleCount: 24000,
+  fluidBackendLabel: 'Initializing GPU…',
   fluidConfig: { ...DEFAULT_SAND_WATER_CONFIG },
   fluidStats: {
     waterCount: 0,
@@ -1882,6 +1892,8 @@ export const useLabStore = create<LabState>((set, get) => ({
   setFluidPreset: (fluidPresetId) =>
     set((s) => ({
       fluidPresetId,
+      fluidContainerMode:
+        fluidPresetId === 'obstacle-splash' ? 'tank' : s.fluidContainerMode,
       fluidConfig: {
         ...s.fluidConfig,
         hasObstacle: fluidPresetId === 'obstacle-splash',
@@ -1891,6 +1903,24 @@ export const useLabStore = create<LabState>((set, get) => ({
     })),
 
   setFluidTool: (fluidTool) => set({ fluidTool }),
+
+  setFluidContainerMode: (fluidContainerMode) =>
+    set((s) => ({
+      fluidContainerMode,
+      fluidConfig: {
+        ...s.fluidConfig,
+        hasObstacle: fluidContainerMode === 'tank' ? s.fluidConfig.hasObstacle : false,
+      },
+      fluidResetNonce: s.fluidResetNonce + 1,
+    })),
+
+  setFluidTargetParticleCount: (fluidTargetParticleCount) =>
+    set((s) => ({
+      fluidTargetParticleCount,
+      fluidResetNonce: s.fluidResetNonce + 1,
+    })),
+
+  setFluidBackendLabel: (fluidBackendLabel) => set({ fluidBackendLabel }),
 
   updateFluidConfig: (patch) =>
     set((s) => ({
