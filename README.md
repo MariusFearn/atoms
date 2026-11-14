@@ -60,39 +60,46 @@ The video proposes reinterpreting **$\text{Be-8}$ breakup**, the **$\text{C-12}$
 5. **Check the Standing-Wave Claims in `Atom (Wave Lab)`:**
    - Switch to the **Atom (`Wave Lab`)** tab in the top bar to see why electrons are *already* modeled as **3D standing waves** in Schrödinger's equation (not classical planet orbits), slice open the `2s` nodal shell, toggle **Magnetic Dipole Field Loops**, and check exact hydrogen spectrum wavelengths.
 
-## Prerequisites
+## Prerequisites & Hardware (No GPU Required)
 
-- **Node.js** >= 22 (with `npm`)
-- **uv** (Astral Python package manager) + **Python** >= 3.11 (for `services/science-api`)
+- **GPU is NOT required:**
+  - **3D Graphics:** Runs in any modern desktop browser with **WebGL2** (works on integrated graphics; use the **Low-FX** toggle in the top bar for lighter rendering).
+  - **Scientific Compute:** **RDKit**, **PySCF**, **Atom (`Wave Lab`)**, and **Nuclear Sandbox (`Toy`)** all run on CPU.
+  - **Optional NVIDIA CUDA Acceleration (OpenMM):** `Experiment (OpenMM)` declares `openmm[cuda12]` and automatically selects `CUDA` if a compatible NVIDIA GPU + driver is present, otherwise falling back transparently to `CPU` / `Reference`.
+- **Software:**
+  - **Node.js** >= 22 (with `npm`)
+  - **uv** (Astral Python package manager) + **Python** >= 3.11 (for `services/science-api`)
+  - Linux / macOS / WSL2 bash shell for `./scripts/start-dev.sh` (`lsof` or `ss` + `curl`)
 
 ## Setup & Run Instructions
 
-### 1. Web Application & Domain Package
+### Quick Start (Recommended — Starts Web App + Science API Together)
 
 ```bash
+git clone https://github.com/MariusFearn/atoms.git
+cd atoms
 npm install
-npm run dev
-```
-
-Open `http://localhost:5173` in a WebGL2-capable browser.
-
-### 2. Optional Science API Service (`uv`)
-
-```bash
-# Creates and syncs the root .venv from pyproject.toml + uv.lock
 uv sync
-cd services/science-api && uv run uvicorn app.main:app --reload --port 8000
-```
-
-### 3. Combined Dev Launcher (Frees Ports 8000 & 5173 Automatically)
-
-```bash
 npm run dev:all
-# or directly:
-./scripts/start-dev.sh
 ```
 
-The Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8000`. If `science-api` is not running, the web editor remains fully usable in local editing mode and disables service-dependent RDKit buttons with an explanation.
+Then open **`http://localhost:5173`** in your browser. (`npm run dev:all` / `./scripts/start-dev.sh` automatically frees ports `8000` and `5173`, launches `science-api` with `uv`, and starts the Vite web app.)
+
+### Running Services Separately
+
+1. **Web Application only (offline molecule editor & Atom Wave Lab):**
+   ```bash
+   npm install
+   npm run dev
+   ```
+   Open `http://localhost:5173`. If `science-api` is not running, local editing and `.matterlab.json` save/load stay active while RDKit, OpenMM, PySCF, and Nuclear Sandbox run buttons explain that the backend is offline.
+
+2. **Science API Service only (`uv`):**
+   ```bash
+   uv sync
+   cd services/science-api && uv run uvicorn app.main:app --reload --port 8000
+   ```
+   The Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8000`.
 
 ## Testing, Typechecking, Linting & Building
 
