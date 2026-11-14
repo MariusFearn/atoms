@@ -27,33 +27,33 @@ export const DEFAULT_SAND_WATER_CONFIG: SandWaterConfig = {
 };
 
 export const TANK_BOUNDS = {
-  minX: -3.2,
-  maxX: 3.2,
+  minX: -4.5,
+  maxX: 4.5,
   minY: 0.0,
-  maxY: 5.8,
-  minZ: -1.8,
-  maxZ: 1.8,
+  maxY: 6.8,
+  minZ: -2.1,
+  maxZ: 2.1,
 } as const;
 
 export const OBSTACLE_BOX = {
-  minX: -0.35,
-  maxX: 0.35,
+  minX: -0.4,
+  maxX: 0.4,
   minY: 0.0,
-  maxY: 2.0,
-  minZ: -1.8,
-  maxZ: 1.8,
+  maxY: 2.5,
+  minZ: -2.1,
+  maxZ: 2.1,
 } as const;
 
-export const MAX_MACRO_PARTICLES = 1500;
-export const WATER_RADIUS = 0.16;
-export const SAND_RADIUS = 0.145;
-const SMOOTHING_H = 0.52;
+export const MAX_MACRO_PARTICLES = 6000;
+export const WATER_RADIUS = 0.08;
+export const SAND_RADIUS = 0.072;
+const SMOOTHING_H = 0.28;
 const CELL_SIZE = SMOOTHING_H;
 
-// Spatial grid dimensions covering TANK_BOUNDS + margin
-const GRID_NX = 16;
-const GRID_NY = 14;
-const GRID_NZ = 10;
+// Spatial grid dimensions covering TANK_BOUNDS (9.0 x 6.8 x 4.2)
+const GRID_NX = 34;
+const GRID_NY = 26;
+const GRID_NZ = 16;
 const GRID_TOTAL_CELLS = GRID_NX * GRID_NY * GRID_NZ;
 
 export interface SandWaterSimulationState {
@@ -109,9 +109,9 @@ export function spawnMacroParticle(
   if (state.count >= MAX_MACRO_PARTICLES) return false;
   const idx = state.count;
   state.kinds[idx] = kind === 'water' ? 0 : 1;
-  state.px[idx] = Math.max(TANK_BOUNDS.minX + 0.2, Math.min(TANK_BOUNDS.maxX - 0.2, x));
-  state.py[idx] = Math.max(TANK_BOUNDS.minY + 0.2, Math.min(TANK_BOUNDS.maxY - 0.2, y));
-  state.pz[idx] = Math.max(TANK_BOUNDS.minZ + 0.2, Math.min(TANK_BOUNDS.maxZ - 0.2, z));
+  state.px[idx] = Math.max(TANK_BOUNDS.minX + 0.12, Math.min(TANK_BOUNDS.maxX - 0.12, x));
+  state.py[idx] = Math.max(TANK_BOUNDS.minY + 0.12, Math.min(TANK_BOUNDS.maxY - 0.12, y));
+  state.pz[idx] = Math.max(TANK_BOUNDS.minZ + 0.12, Math.min(TANK_BOUNDS.maxZ - 0.12, z));
   state.vx[idx] = vx;
   state.vy[idx] = vy;
   state.vz[idx] = vz;
@@ -133,16 +133,16 @@ export function loadSandWaterPreset(
   let seq = 1;
 
   if (presetId === 'dam-break') {
-    for (let ix = 0; ix < 8; ix++) {
-      for (let iy = 0; iy < 12; iy++) {
-        for (let iz = 0; iz < 6; iz++) {
+    for (let ix = 0; ix < 14; ix++) {
+      for (let iy = 0; iy < 20; iy++) {
+        for (let iz = 0; iz < 10; iz++) {
           seq += 1;
           spawnMacroParticle(
             state,
             'water',
-            -2.8 + ix * 0.28 + deterministicJitter(seq) * 0.04,
-            0.28 + iy * 0.28,
-            -0.85 + iz * 0.34 + deterministicJitter(seq + 9) * 0.04,
+            -4.15 + ix * 0.17 + deterministicJitter(seq) * 0.03,
+            0.2 + iy * 0.17,
+            -0.85 + iz * 0.19 + deterministicJitter(seq + 9) * 0.03,
           );
         }
       }
@@ -151,16 +151,16 @@ export function loadSandWaterPreset(
   }
 
   if (presetId === 'sand-pile') {
-    for (let ix = 0; ix < 8; ix++) {
-      for (let iy = 0; iy < 12; iy++) {
-        for (let iz = 0; iz < 6; iz++) {
+    for (let ix = 0; ix < 14; ix++) {
+      for (let iy = 0; iy < 18; iy++) {
+        for (let iz = 0; iz < 10; iz++) {
           seq += 1;
           spawnMacroParticle(
             state,
             'sand',
-            -1.05 + ix * 0.3 + deterministicJitter(seq) * 0.05,
-            1.4 + iy * 0.3,
-            -0.8 + iz * 0.32 + deterministicJitter(seq + 7) * 0.05,
+            -1.15 + ix * 0.17 + deterministicJitter(seq) * 0.03,
+            1.6 + iy * 0.17,
+            -0.85 + iz * 0.19 + deterministicJitter(seq + 7) * 0.03,
           );
         }
       }
@@ -169,33 +169,33 @@ export function loadSandWaterPreset(
   }
 
   if (presetId === 'obstacle-splash') {
-    for (let ix = 0; ix < 7; ix++) {
-      for (let iy = 0; iy < 10; iy++) {
-        for (let iz = 0; iz < 6; iz++) {
+    for (let ix = 0; ix < 12; ix++) {
+      for (let iy = 0; iy < 16; iy++) {
+        for (let iz = 0; iz < 10; iz++) {
           seq += 1;
           spawnMacroParticle(
             state,
             'water',
-            -2.85 + ix * 0.3 + deterministicJitter(seq) * 0.04,
-            0.3 + iy * 0.3,
-            -0.85 + iz * 0.34 + deterministicJitter(seq + 3) * 0.04,
-            1.8,
+            -4.1 + ix * 0.18 + deterministicJitter(seq) * 0.03,
+            0.2 + iy * 0.18,
+            -0.85 + iz * 0.19 + deterministicJitter(seq + 3) * 0.03,
+            2.4,
             0,
             0,
           );
         }
       }
     }
-    for (let ix = 0; ix < 4; ix++) {
-      for (let iy = 0; iy < 5; iy++) {
-        for (let iz = 0; iz < 4; iz++) {
+    for (let ix = 0; ix < 8; ix++) {
+      for (let iy = 0; iy < 8; iy++) {
+        for (let iz = 0; iz < 8; iz++) {
           seq += 1;
           spawnMacroParticle(
             state,
             'sand',
-            1.35 + ix * 0.31 + deterministicJitter(seq) * 0.04,
-            0.25 + iy * 0.3,
-            -0.55 + iz * 0.35,
+            1.6 + ix * 0.17 + deterministicJitter(seq) * 0.02,
+            0.15 + iy * 0.16,
+            -0.7 + iz * 0.2,
           );
         }
       }
@@ -203,31 +203,31 @@ export function loadSandWaterPreset(
     return { hasObstacle: true };
   }
 
-  // Default: 'sand-into-water' — pool of water at bottom + sand dropping from above
-  for (let ix = 0; ix < 15; ix++) {
-    for (let iy = 0; iy < 5; iy++) {
-      for (let iz = 0; iz < 6; iz++) {
+  // Default: 'sand-into-water' — deep pool of water at bottom + fine sand stream dropping from above
+  for (let ix = 0; ix < 24; ix++) {
+    for (let iy = 0; iy < 8; iy++) {
+      for (let iz = 0; iz < 10; iz++) {
         seq += 1;
         spawnMacroParticle(
           state,
           'water',
-          -2.45 + ix * 0.35 + deterministicJitter(seq) * 0.04,
-          0.25 + iy * 0.3,
-          -0.9 + iz * 0.36 + deterministicJitter(seq + 5) * 0.04,
+          -3.6 + ix * 0.31 + deterministicJitter(seq) * 0.03,
+          0.16 + iy * 0.18,
+          -0.95 + iz * 0.21 + deterministicJitter(seq + 5) * 0.03,
         );
       }
     }
   }
-  for (let ix = 0; ix < 6; ix++) {
-    for (let iy = 0; iy < 6; iy++) {
-      for (let iz = 0; iz < 5; iz++) {
+  for (let ix = 0; ix < 10; ix++) {
+    for (let iy = 0; iy < 10; iy++) {
+      for (let iz = 0; iz < 8; iz++) {
         seq += 1;
         spawnMacroParticle(
           state,
           'sand',
-          -0.8 + ix * 0.32 + deterministicJitter(seq) * 0.04,
-          2.6 + iy * 0.32,
-          -0.65 + iz * 0.32 + deterministicJitter(seq + 11) * 0.04,
+          -0.85 + ix * 0.17 + deterministicJitter(seq) * 0.03,
+          2.6 + iy * 0.17,
+          -0.65 + iz * 0.18 + deterministicJitter(seq + 11) * 0.03,
         );
       }
     }
@@ -295,11 +295,11 @@ export function stepSandWaterSimulation(
   const spikyGradCoeff = -45.0 / (Math.PI * Math.pow(SMOOTHING_H, 6));
   const viscLapCoeff = 45.0 / (Math.PI * Math.pow(SMOOTHING_H, 6));
 
-  const restDensity = 11.5;
-  const gasK = 14.0 * config.stiffness;
-  const viscMu = 0.22 + config.viscosity * 1.8;
-  const sandKn = 420.0 * config.stiffness;
-  const sandCn = 14.0;
+  const restDensity = 55.0;
+  const gasK = 3.2 * config.stiffness;
+  const viscMu = 0.04 + config.viscosity * 0.35;
+  const sandKn = 650.0 * config.stiffness;
+  const sandCn = 18.0;
 
   for (let sub = 0; sub < substeps; sub++) {
     // 1. Rebuild spatial hash
@@ -414,9 +414,9 @@ export function stepSandWaterSimulation(
                     fz[j]! -= totalFz;
 
                     // Short-range soft core to keep water droplets well-spaced
-                    if (r < minDist * 0.78) {
-                      const pen = minDist * 0.78 - r;
-                      const rep = 45.0 * pen;
+                    if (r < minDist * 0.85) {
+                      const pen = minDist * 0.85 - r;
+                      const rep = 85.0 * pen;
                       fx[i]! += rep * nx;
                       fy[i]! += rep * ny;
                       fz[i]! += rep * nz;

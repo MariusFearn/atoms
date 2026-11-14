@@ -80,7 +80,7 @@ export const SandWaterViewport: React.FC = () => {
     const height = Math.max(container.clientHeight, 240);
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 200);
-    camera.position.set(0, 4.8, 9.8);
+    camera.position.set(0, 5.6, 13.8);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: !lowEffects,
@@ -95,9 +95,9 @@ export const SandWaterViewport: React.FC = () => {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.target.set(0, 2.1, 0);
-    controls.minDistance = 4;
-    controls.maxDistance = 30;
+    controls.target.set(0, 2.4, 0);
+    controls.minDistance = 5;
+    controls.maxDistance = 42;
     controls.update();
 
     scene.add(new THREE.HemisphereLight('#bae6fd', '#1e293b', 0.9));
@@ -109,7 +109,7 @@ export const SandWaterViewport: React.FC = () => {
     scene.add(rimLight);
 
     // Subtle lab floor grid
-    const gridHelper = new THREE.GridHelper(16, 16, '#334155', '#172033');
+    const gridHelper = new THREE.GridHelper(22, 22, '#334155', '#172033');
     gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 
@@ -157,11 +157,11 @@ export const SandWaterViewport: React.FC = () => {
     stirCursor.visible = false;
     scene.add(stirCursor);
 
-    // Instanced water & sand spheres
-    const sphereGeo = new THREE.SphereGeometry(1, 14, 10);
+    // Instanced fine water & sand particles
+    const sphereGeo = new THREE.SphereGeometry(1, 10, 8);
     const sphereMat = new THREE.MeshStandardMaterial({
-      roughness: 0.35,
-      metalness: 0.06,
+      roughness: 0.3,
+      metalness: 0.05,
     });
     const particleMesh = new THREE.InstancedMesh(sphereGeo, sphereMat, MAX_MACRO_PARTICLES);
     particleMesh.count = 0;
@@ -261,11 +261,15 @@ export const SandWaterViewport: React.FC = () => {
     window.addEventListener('resize', onResize);
 
     const dummy = new THREE.Object3D();
-    const waterColor = new THREE.Color('#38bdf8');
+    const waterColors = [
+      new THREE.Color('#38bdf8'),
+      new THREE.Color('#0ea5e9'),
+    ];
     const sandColors = [
       new THREE.Color('#eab308'),
       new THREE.Color('#f59e0b'),
       new THREE.Color('#d97706'),
+      new THREE.Color('#ca8a04'),
     ];
     let frameTicker = 0;
     let rafId = 0;
@@ -292,19 +296,19 @@ export const SandWaterViewport: React.FC = () => {
       if (pointerActive) {
         if (st.fluidTool === 'pour-water' || st.fluidTool === 'pour-sand') {
           const kind = st.fluidTool === 'pour-water' ? 'water' : 'sand';
-          for (let k = 0; k < 2; k++) {
+          for (let k = 0; k < 7; k++) {
             spawnCounter += 1;
-            const jx = (Math.sin(spawnCounter * 3.1) * 0.14);
-            const jz = (Math.cos(spawnCounter * 5.7) * 0.14);
+            const jx = Math.sin(spawnCounter * 3.1) * 0.22;
+            const jz = Math.cos(spawnCounter * 5.7) * 0.22;
             spawnMacroParticle(
               sim,
               kind,
               currentHit.x + jx,
-              currentHit.y,
+              currentHit.y + (k % 2) * 0.1,
               currentHit.z + jz,
-              jx * 2.5,
-              -1.5,
-              jz * 2.5,
+              jx * 1.8,
+              -2.2,
+              jz * 1.8,
             );
           }
           stirCursor.visible = false;
@@ -332,12 +336,15 @@ export const SandWaterViewport: React.FC = () => {
       particleMesh.count = n;
       for (let i = 0; i < n; i++) {
         const isWater = sim.kinds[i] === 0;
-        const rad = isWater ? WATER_RADIUS : SAND_RADIUS;
+        const rad = isWater ? WATER_RADIUS * 1.28 : SAND_RADIUS * 1.02;
         dummy.position.set(sim.px[i]!, sim.py[i]!, sim.pz[i]!);
         dummy.scale.setScalar(rad);
         dummy.updateMatrix();
         particleMesh.setMatrixAt(i, dummy.matrix);
-        particleMesh.setColorAt(i, isWater ? waterColor : sandColors[i % 3]!);
+        particleMesh.setColorAt(
+          i,
+          isWater ? waterColors[i & 1]! : sandColors[i & 3]!,
+        );
       }
       particleMesh.instanceMatrix.needsUpdate = true;
       if (particleMesh.instanceColor) {
@@ -375,8 +382,8 @@ export const SandWaterViewport: React.FC = () => {
   useEffect(() => {
     const ctx = sceneRef.current;
     if (!ctx) return;
-    ctx.camera.position.set(0, 4.8, 9.8);
-    ctx.controls.target.set(0, 2.1, 0);
+    ctx.camera.position.set(0, 5.6, 13.8);
+    ctx.controls.target.set(0, 2.4, 0);
     ctx.controls.update();
   }, [cameraResetNonce]);
 
