@@ -75,6 +75,7 @@ export type SandWaterTool =
   | 'pour-ferro'
   | 'orbit';
 export type SandWaterContainerMode = 'glass' | 'tank';
+export type SandWaterRenderStyle = 'spheres' | 'molecules';
 
 export interface SandWaterStatsSnapshot {
   waterCount: number;
@@ -178,6 +179,7 @@ export interface LabState {
   fluidPresetId: SandWaterPresetId;
   fluidTool: SandWaterTool;
   fluidContainerMode: SandWaterContainerMode;
+  fluidRenderStyle: SandWaterRenderStyle;
   fluidTargetParticleCount: number;
   fluidBackendLabel: string;
   fluidConfig: SandWaterConfig;
@@ -302,6 +304,7 @@ export interface LabState {
   setFluidPreset: (presetId: SandWaterPresetId) => void;
   setFluidTool: (tool: SandWaterTool) => void;
   setFluidContainerMode: (mode: SandWaterContainerMode) => void;
+  setFluidRenderStyle: (style: SandWaterRenderStyle) => void;
   setFluidTargetParticleCount: (count: number) => void;
   setFluidBackendLabel: (label: string) => void;
   setFluidAutoPourKind: (kind: 'none' | 'water' | 'sand' | 'oil' | 'ferro') => void;
@@ -520,6 +523,7 @@ export const useLabStore = create<LabState>((set, get) => ({
   fluidPresetId: 'sand-into-water',
   fluidTool: 'pour-water',
   fluidContainerMode: 'glass',
+  fluidRenderStyle: 'spheres',
   fluidTargetParticleCount: 24000,
   fluidBackendLabel: 'Initializing GPU…',
   fluidConfig: { ...DEFAULT_SAND_WATER_CONFIG },
@@ -1931,6 +1935,8 @@ export const useLabStore = create<LabState>((set, get) => ({
       },
       fluidResetNonce: s.fluidResetNonce + 1,
     })),
+
+  setFluidRenderStyle: (fluidRenderStyle) => set({ fluidRenderStyle }),
 
   setFluidTargetParticleCount: (fluidTargetParticleCount) =>
     set((s) => ({

@@ -314,6 +314,7 @@ export const SandWaterViewport: React.FC = () => {
             stirMode,
             stirPos: [currentHit.x, currentHit.y, currentHit.z],
             stirVel: [stirVel.x, stirVel.y, stirVel.z],
+            renderStyle: st.fluidRenderStyle,
           });
 
           frameTicker += 1;

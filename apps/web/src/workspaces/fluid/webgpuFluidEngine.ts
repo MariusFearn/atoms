@@ -452,13 +452,127 @@ struct VSOut {
   @location(2) @interpolate(flat) kind: f32,
   @location(3) @interpolate(flat) pid: u32,
   @location(4) radius: f32,
+  @location(5) worldPos: vec3<f32>,
+  @location(6) @interpolate(flat) rot0: vec3<f32>,
+  @location(7) @interpolate(flat) rot1: vec3<f32>,
+  @location(8) @interpolate(flat) rot2: vec3<f32>,
 };
 
-@vertex
-fn vsMain(
-  @builtin(vertex_index) vIdx: u32,
-  @builtin(instance_index) iIdx: u32,
-) -> VSOut {
+// uExtra.w: 0 = plain spheres, >= 1 = stylized molecules with time = uExtra.w - 1
+fn moleculeStyle() -> bool { return params.uExtra.w >= 0.5; }
+fn styleTime() -> f32 { return max(0.0, params.uExtra.w - 1.0); }
+
+fn hash32(x: u32) -> u32 {
+  var v = x * 747796405u + 2891336453u;
+  v = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+  return (v >> 22u) ^ v;
+}
+fn hashF(x: u32) -> f32 { return f32(hash32(x)) / 4294967295.0; }
+
+// Random axis per particle + slow "thermal" tumble over time (purely visual).
+fn molRotation(pid: u32, t: f32) -> mat3x3<f32> {
+  let h1 = hashF(pid);
+  let h2 = hashF(pid ^ 0x9e3779b9u);
+  let h3 = hashF(pid * 3u + 7u);
+  let z = h1 * 2.0 - 1.0;
+  let phi = h2 * 6.2831853;
+  let s = sqrt(max(0.0, 1.0 - z * z));
+  let ax = vec3<f32>(s * cos(phi), s * sin(phi), z);
+  let ang = h3 * 6.2831853 + t * (0.6 + 1.8 * h1);
+  let c = cos(ang);
+  let sn = sin(ang);
+  let k = 1.0 - c;
+  return mat3x3<f32>(
+    vec3<f32>(c + ax.x * ax.x * k, ax.y * ax.x * k + ax.z * sn, ax.z * ax.x * k - ax.y * sn),
+    vec3<f32>(ax.x * ax.y * k - ax.z * sn, c + ax.y * ax.y * k, ax.z * ax.y * k + ax.x * sn),
+    vec3<f32>(ax.x * ax.z * k + ax.y * sn, ax.y * ax.z * k - ax.x * sn, c + ax.z * ax.z * k),
+  );
+}
+
+fn molAtomCount(kind: f32) -> u32 {
+  if (kind < 0.5) { return 3u; } // H2O
+  if (kind < 1.5) { return 5u; } // SiO4 quartz unit
+  if (kind < 2.5) { return 4u; } // C4 alkane backbone (oil)
+  return 7u;                     // Fe3O4 magnetite unit
+}
+
+// xyz = local position in molecule-radius units, w = atom radius
+fn molAtom(kind: f32, i: u32) -> vec4<f32> {
+  if (kind < 0.5) {
+    var a = array<vec4<f32>, 3>(
+      vec4<f32>( 0.0,  -0.15, 0.0, 0.50),
+      vec4<f32>( 0.60,  0.32, 0.0, 0.33),
+      vec4<f32>(-0.60,  0.32, 0.0, 0.33),
+    );
+    return a[i];
+  }
+  if (kind < 1.5) {
+    var a = array<vec4<f32>, 5>(
+      vec4<f32>( 0.0,   0.0,   0.0,  0.36),
+      vec4<f32>( 0.38,  0.38,  0.38, 0.30),
+      vec4<f32>(-0.38, -0.38,  0.38, 0.30),
+      vec4<f32>(-0.38,  0.38, -0.38, 0.30),
+      vec4<f32>( 0.38, -0.38, -0.38, 0.30),
+    );
+    return a[i];
+  }
+  if (kind < 2.5) {
+    var a = array<vec4<f32>, 4>(
+      vec4<f32>(-0.72, -0.12, 0.0, 0.30),
+      vec4<f32>(-0.24,  0.12, 0.0, 0.30),
+      vec4<f32>( 0.24, -0.12, 0.0, 0.30),
+      vec4<f32>( 0.72,  0.12, 0.0, 0.30),
+    );
+    return a[i];
+  }
+  var a = array<vec4<f32>, 7>(
+    vec4<f32>( 0.36,  0.0,  0.0,   0.30),
+    vec4<f32>(-0.18,  0.0,  0.312, 0.30),
+    vec4<f32>(-0.18,  0.0, -0.312, 0.30),
+    vec4<f32>( 0.36,  0.36,  0.36, 0.24),
+    vec4<f32>(-0.36, -0.36,  0.36, 0.24),
+    vec4<f32>(-0.36,  0.36, -0.36, 0.24),
+    vec4<f32>( 0.36, -0.36, -0.36, 0.24),
+  );
+  return a[i];
+}
+
+// CPK-style element colours
+fn molAtomColor(kind: f32, i: u32) -> vec3<f32> {
+  let oxygen = vec3<f32>(0.92, 0.16, 0.12);
+  if (kind < 0.5) {
+    if (i == 0u) { return oxygen; }
+    return vec3<f32>(0.95, 0.96, 0.98);
+  }
+  if (kind < 1.5) {
+    if (i == 0u) { return vec3<f32>(0.93, 0.74, 0.38); }
+    return oxygen;
+  }
+  if (kind < 2.5) { return vec3<f32>(0.40, 0.40, 0.36); }
+  if (i < 3u) { return vec3<f32>(0.80, 0.42, 0.18); }
+  return oxygen;
+}
+
+fn cloudColor(kind: f32) -> vec3<f32> {
+  if (kind < 0.5) { return vec3<f32>(0.20, 0.62, 1.00); }
+  if (kind < 1.5) { return vec3<f32>(1.00, 0.72, 0.28); }
+  if (kind < 2.5) { return vec3<f32>(0.58, 0.95, 0.22); }
+  return vec3<f32>(0.62, 0.42, 1.00);
+}
+
+fn particleRadius(kind: f32) -> f32 {
+  var r = params.uRadii.y * 1.05;
+  if (kind < 0.5) {
+    r = params.uRadii.x * 1.38;
+  } else if (kind > 1.5 && kind < 2.5) {
+    r = params.uExtra.y * 1.35;
+  } else if (kind >= 2.5) {
+    r = params.uExtra.z * 1.1;
+  }
+  return r;
+}
+
+fn buildBillboard(vIdx: u32, iIdx: u32, scale: f32) -> VSOut {
   var corners = array<vec2<f32>, 6>(
     vec2<f32>(-1.0, -1.0),
     vec2<f32>( 1.0, -1.0),
@@ -469,15 +583,12 @@ fn vsMain(
   );
   let uv = corners[vIdx];
   let pInfo = posBuf[iIdx];
-  var r = params.uRadii.y * 1.05;
-  if (pInfo.w < 0.5) {
-    r = params.uRadii.x * 1.38;
-  } else if (pInfo.w > 1.5 && pInfo.w < 2.5) {
-    r = params.uExtra.y * 1.35;
-  } else if (pInfo.w >= 2.5) {
-    r = params.uExtra.z * 1.1;
+  var r = particleRadius(pInfo.w);
+  if (moleculeStyle()) {
+    r = r * 1.45;
   }
-  let worldPos = pInfo.xyz + params.uCameraRight.xyz * (uv.x * r) + params.uCameraUp.xyz * (uv.y * r);
+  let half = r * scale;
+  let worldPos = pInfo.xyz + params.uCameraRight.xyz * (uv.x * half) + params.uCameraUp.xyz * (uv.y * half);
 
   var out: VSOut;
   out.pos = params.uViewProj * vec4<f32>(worldPos, 1.0);
@@ -486,7 +597,35 @@ fn vsMain(
   out.kind = pInfo.w;
   out.pid = iIdx;
   out.radius = r;
+  out.worldPos = worldPos;
+  if (moleculeStyle()) {
+    let m = molRotation(iIdx, styleTime());
+    out.rot0 = m[0];
+    out.rot1 = m[1];
+    out.rot2 = m[2];
+  } else {
+    out.rot0 = vec3<f32>(1.0, 0.0, 0.0);
+    out.rot1 = vec3<f32>(0.0, 1.0, 0.0);
+    out.rot2 = vec3<f32>(0.0, 0.0, 1.0);
+  }
   return out;
+}
+
+@vertex
+fn vsMain(
+  @builtin(vertex_index) vIdx: u32,
+  @builtin(instance_index) iIdx: u32,
+) -> VSOut {
+  // 1.2x margin so perspective-projected atoms never clip at the quad edge
+  return buildBillboard(vIdx, iIdx, select(1.0, 1.2, moleculeStyle()));
+}
+
+@vertex
+fn vsCloud(
+  @builtin(vertex_index) vIdx: u32,
+  @builtin(instance_index) iIdx: u32,
+) -> VSOut {
+  return buildBillboard(vIdx, iIdx, 1.9);
 }
 
 struct FSOut {
@@ -494,8 +633,80 @@ struct FSOut {
   @builtin(frag_depth) depth: f32,
 };
 
+fn shadeMolecule(in: VSOut) -> FSOut {
+  let rot = mat3x3<f32>(in.rot0, in.rot1, in.rot2);
+  let rayO = params.uCameraPos.xyz;
+  let rayD = normalize(in.worldPos - rayO);
+
+  var bestT = 1.0e9;
+  var bestN = vec3<f32>(0.0, 1.0, 0.0);
+  var bestCol = vec3<f32>(1.0);
+  var hit = false;
+  let n = molAtomCount(in.kind);
+  for (var i = 0u; i < n; i = i + 1u) {
+    let a = molAtom(in.kind, i);
+    let c = in.worldCenter + rot * (a.xyz * in.radius);
+    let rad = a.w * in.radius;
+    let oc = rayO - c;
+    let b = dot(oc, rayD);
+    let disc = b * b - (dot(oc, oc) - rad * rad);
+    if (disc > 0.0) {
+      let t = -b - sqrt(disc);
+      if (t > 0.0 && t < bestT) {
+        bestT = t;
+        bestN = normalize(rayO + rayD * t - c);
+        bestCol = molAtomColor(in.kind, i);
+        hit = true;
+      }
+    }
+  }
+  if (!hit) { discard; }
+
+  let hitPos = rayO + rayD * bestT;
+  let clip = params.uViewProj * vec4<f32>(hitPos, 1.0);
+
+  let lightDir = normalize(vec3<f32>(0.55, 0.82, 0.65));
+  let viewDir = -rayD;
+  let diff = max(0.0, dot(bestN, lightDir));
+  let spec = pow(max(0.0, dot(bestN, normalize(lightDir + viewDir))), 48.0);
+  let rim = pow(1.0 - max(0.0, dot(bestN, viewDir)), 2.5);
+  let rgb = bestCol * (0.22 + 0.78 * diff) + vec3<f32>(1.0) * spec * 0.55 + cloudColor(in.kind) * rim * 0.35;
+
+  var out: FSOut;
+  out.color = vec4<f32>(rgb, 1.0);
+  out.depth = clamp(clip.z / clip.w, 0.0, 0.9999);
+  return out;
+}
+
+// Fake electron-density glow (Wave Lab look): Gaussian falloff around each
+// atom, integrated by closest-approach distance of the view ray. Additive blend.
+@fragment
+fn fsCloud(in: VSOut) -> @location(0) vec4<f32> {
+  let rot = mat3x3<f32>(in.rot0, in.rot1, in.rot2);
+  let rayO = params.uCameraPos.xyz;
+  let rayD = normalize(in.worldPos - rayO);
+  var glow = 0.0;
+  let n = molAtomCount(in.kind);
+  for (var i = 0u; i < n; i = i + 1u) {
+    let a = molAtom(in.kind, i);
+    let c = in.worldCenter + rot * (a.xyz * in.radius);
+    let oc = c - rayO;
+    let tProj = dot(oc, rayD);
+    let d2 = max(0.0, dot(oc, oc) - tProj * tProj);
+    let sig = a.w * in.radius * 1.8;
+    glow = glow + exp(-d2 / (sig * sig)) * a.w;
+  }
+  let edge = 1.0 - smoothstep(0.7, 1.0, length(in.uv));
+  let shimmer = 0.75 + 0.25 * sin(styleTime() * 2.4 + f32(in.pid % 997u) * 0.37);
+  let rgb = cloudColor(in.kind) * glow * edge * shimmer * 0.2;
+  return vec4<f32>(rgb, 1.0);
+}
+
 @fragment
 fn fsMain(in: VSOut) -> FSOut {
+  if (moleculeStyle()) {
+    return shadeMolecule(in);
+  }
   let r2 = dot(in.uv, in.uv);
   if (r2 > 1.0) { discard; }
 
@@ -1090,6 +1301,7 @@ export class WebGpuFluidEngine {
   private computeBindGroups: [GPUBindGroup, GPUBindGroup];
 
   private particlePipeline: GPURenderPipeline;
+  private cloudPipeline: GPURenderPipeline;
   private particleBindGroups: [GPUBindGroup, GPUBindGroup];
   private linePipeline: GPURenderPipeline;
   private triPipeline: GPURenderPipeline;
@@ -1230,8 +1442,9 @@ export class WebGpuFluidEngine {
       ],
     });
 
+    const particlePipeLayout = device.createPipelineLayout({ bindGroupLayouts: [particleLayout] });
     this.particlePipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [particleLayout] }),
+      layout: particlePipeLayout,
       vertex: { module: particleModule, entryPoint: 'vsMain' },
       fragment: {
         module: particleModule,
@@ -1242,6 +1455,30 @@ export class WebGpuFluidEngine {
       depthStencil: {
         format: 'depth24plus',
         depthWriteEnabled: true,
+        depthCompare: 'less',
+      },
+    });
+
+    this.cloudPipeline = device.createRenderPipeline({
+      layout: particlePipeLayout,
+      vertex: { module: particleModule, entryPoint: 'vsCloud' },
+      fragment: {
+        module: particleModule,
+        entryPoint: 'fsCloud',
+        targets: [
+          {
+            format,
+            blend: {
+              color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+              alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' },
+            },
+          },
+        ],
+      },
+      primitive: { topology: 'triangle-list' },
+      depthStencil: {
+        format: 'depth24plus',
+        depthWriteEnabled: false,
         depthCompare: 'less',
       },
     });
@@ -1484,6 +1721,7 @@ export class WebGpuFluidEngine {
     stirMode: 0 | 1 | 2 | 3; // 0=none, 1=stir, 2=shake, 3=magnet
     stirPos: [number, number, number];
     stirVel: [number, number, number];
+    renderStyle?: 'spheres' | 'molecules';
   }): void {
     if (this.destroyed) return;
     const { width, height, config, container } = params;
@@ -1566,7 +1804,9 @@ export class WebGpuFluidEngine {
       f32[44] = config.gravityZ ?? 0;
       f32[45] = GPU_OIL_RADIUS;
       f32[46] = GPU_FERRO_RADIUS;
-      f32[47] = 0;
+      // 0 = spheres; >= 1 encodes molecule style plus animation time (wrapped)
+      f32[47] =
+        params.renderStyle === 'molecules' ? 1 + ((performance.now() / 1000) % 600) : 0;
 
       f32.set(params.viewProj, 48);
       this.device.queue.writeBuffer(this.uniformBuf, 0, this.uniformBytes);
@@ -1632,6 +1872,10 @@ export class WebGpuFluidEngine {
       rPass.setPipeline(this.particlePipeline);
       rPass.setBindGroup(0, this.particleBindGroups[this.ping]!);
       rPass.draw(6, this.activeCount);
+      if (params.renderStyle === 'molecules') {
+        rPass.setPipeline(this.cloudPipeline);
+        rPass.draw(6, this.activeCount);
+      }
     }
 
     if (this.lineVertexCount > 0) {

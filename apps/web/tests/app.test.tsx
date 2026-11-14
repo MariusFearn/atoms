@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/app/App';
 import { useLabStore } from '../src/state/useLabStore';
@@ -782,6 +782,14 @@ describe('MatterLab Web Application', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^Magnet$/i }));
     expect(useLabStore.getState().fluidTool).toBe('magnet');
+
+    expect(screen.getByRole('button', { name: /Molecules \(stylized\)/i })).toBeDisabled();
+    act(() => {
+      useLabStore.getState().setFluidBackendLabel('WebGPU Compute + Render (Test GPU)');
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Molecules \(stylized\)/i }));
+    expect(useLabStore.getState().fluidRenderStyle).toBe('molecules');
+    expect(screen.getByText(/Visual only: each particle is a blob/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Stir \/ Push/i }));
     expect(useLabStore.getState().fluidTool).toBe('stir');

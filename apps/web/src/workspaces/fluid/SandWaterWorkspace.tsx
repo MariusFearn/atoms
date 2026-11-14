@@ -16,6 +16,7 @@ import {
 import { type SandWaterPresetId } from '@matterlab/domain';
 import {
   type SandWaterContainerMode,
+  type SandWaterRenderStyle,
   type SandWaterTool,
   useLabStore,
 } from '../../state/useLabStore';
@@ -64,6 +65,8 @@ export const SandWaterWorkspace: React.FC = () => {
   const fluidPresetId = useLabStore((s) => s.fluidPresetId);
   const fluidTool = useLabStore((s) => s.fluidTool);
   const fluidContainerMode = useLabStore((s) => s.fluidContainerMode);
+  const fluidRenderStyle = useLabStore((s) => s.fluidRenderStyle);
+  const setFluidRenderStyle = useLabStore((s) => s.setFluidRenderStyle);
   const fluidTargetParticleCount = useLabStore((s) => s.fluidTargetParticleCount);
   const fluidBackendLabel = useLabStore((s) => s.fluidBackendLabel);
   const fluidAutoPourKind = useLabStore((s) => s.fluidAutoPourKind);
@@ -83,6 +86,7 @@ export const SandWaterWorkspace: React.FC = () => {
 
   const activePreset =
     PRESET_OPTIONS.find((p) => p.id === fluidPresetId) ?? PRESET_OPTIONS[0]!;
+  const isWebGpu = fluidBackendLabel.startsWith('WebGPU');
 
   const totalCount =
     fluidStats.waterCount +
@@ -145,6 +149,41 @@ export const SandWaterWorkspace: React.FC = () => {
               </button>
             ))}
           </div>
+
+          <span className="field-label" style={{ marginTop: 8, display: 'block' }}>
+            Particle Look
+          </span>
+          <div className="segmented full-width" role="group" aria-label="Particle render style">
+            {(
+              [
+                ['spheres', 'Spheres'],
+                ['molecules', 'Molecules (stylized)'],
+              ] as Array<[SandWaterRenderStyle, string]>
+            ).map(([style, label]) => (
+              <button
+                key={style}
+                type="button"
+                className={`seg-btn ${fluidRenderStyle === style ? 'is-active' : ''}`}
+                aria-pressed={fluidRenderStyle === style}
+                disabled={style === 'molecules' && !isWebGpu}
+                title={
+                  style === 'molecules' && !isWebGpu
+                    ? 'Molecule look requires the WebGPU renderer'
+                    : undefined
+                }
+                onClick={() => setFluidRenderStyle(style)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {fluidRenderStyle === 'molecules' && (
+            <p className="muted small-text" style={{ margin: '4px 0 0' }}>
+              Visual only: each particle is a blob of ~10²⁰ real molecules, drawn as one
+              tumbling H₂O / SiO₄ / C₄ chain / Fe₃O₄ unit with a fake electron-cloud glow. Not to
+              scale and not simulated at the molecular level.
+            </p>
+          )}
 
           <label className="field-label" htmlFor="gpu-particle-count" style={{ marginTop: 8, display: 'block' }}>
             Preset Particle Count (GPU)
