@@ -3,6 +3,8 @@ import {
   Atom as AtomIcon,
   Download,
   Eye,
+  FileDown,
+  FileUp,
   FolderOpen,
   Maximize2,
   Redo2,
@@ -18,10 +20,13 @@ interface TopBarProps {
 
 export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const molInputRef = useRef<HTMLInputElement | null>(null);
 
   const projectName = useLabStore((s) => s.projectName);
   const workspaceTab = useLabStore((s) => s.workspaceTab);
   const hasUnsavedChanges = useLabStore((s) => s.hasUnsavedChanges);
+  const serviceStatus = useLabStore((s) => s.serviceStatus);
+  const isScienceBusy = useLabStore((s) => s.isScienceBusy);
   const pastCount = useLabStore((s) => s.past.length);
   const futureCount = useLabStore((s) => s.future.length);
 
@@ -49,8 +54,37 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
   const resetToEmptyScene = useLabStore((s) => s.resetToEmptyScene);
   const exportProjectJson = useLabStore((s) => s.exportProjectJson);
   const importProjectJson = useLabStore((s) => s.importProjectJson);
+  const importMolFile = useLabStore((s) => s.importMolFile);
+  const exportMolFile = useLabStore((s) => s.exportMolFile);
   const markSaved = useLabStore((s) => s.markSaved);
   const setStatusBanner = useLabStore((s) => s.setStatusBanner);
+
+  const handleExportMol = async () => {
+    const exported = await exportMolFile();
+    if (!exported) return;
+    const blob = new Blob([exported.molBlock], { type: 'chemical/x-mdl-molfile' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = exported.suggestedName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleMolFileChange = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file) return;
+    const text = await file.text();
+    const baseName = file.name.replace(/\.(mol|sdf)$/i, '');
+    onRequestProtectedAction(
+      'Import MOL / SDF Structure',
+      'You have unsaved changes in the current project. Importing a MOL/SDF file will replace your current structure.',
+      () => {
+        void importMolFile(text, baseName || undefined);
+      },
+    );
+  };
 
   const handleSave = () => {
     try {
@@ -170,6 +204,43 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         >
           <Download size={15} aria-hidden="true" />
           <span>Save</span>
+        </button>
+
+        <input
+          ref={molInputRef}
+          type="file"
+          accept=".mol,.sdf"
+          className="hidden-input"
+          onChange={handleMolFileChange}
+          aria-label="Import MOL or SDF structure file"
+        />
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+          onClick={() => molInputRef.current?.click()}
+          title={
+            serviceStatus.rdkitAvailable
+              ? 'Import supported explicit-H MOL/SDF structure via RDKit'
+              : 'Disabled: MOL/SDF import requires the RDKit science service'
+          }
+        >
+          <FileUp size={15} aria-hidden="true" />
+          <span>Import MOL</span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+          onClick={() => void handleExportMol()}
+          title={
+            serviceStatus.rdkitAvailable
+              ? 'Export structure as MOL V2000 via RDKit (preserves aromaticity)'
+              : 'Disabled: MOL export requires the RDKit science service'
+          }
+        >
+          <FileDown size={15} aria-hidden="true" />
+          <span>Export MOL</span>
         </button>
 
         <span className="divider" aria-hidden="true" />

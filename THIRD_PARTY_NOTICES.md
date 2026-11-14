@@ -15,6 +15,8 @@ This project uses open-source libraries and curated scientific reference dataset
 - **FastAPI** — MIT License
 - **Pydantic** — MIT License
 - **Uvicorn** — BSD-3-Clause License
+- **RDKit** (`rdkit`) — BSD-3-Clause License
+- **NumPy / Pillow** (transitive RDKit dependencies) — BSD-3-Clause / HPND Licenses
 - **pytest / httpx** — MIT / BSD-3-Clause Licenses (dev tooling)
 
 ## Curated Scientific Reference Data (`packages/domain/src/elements.ts`)

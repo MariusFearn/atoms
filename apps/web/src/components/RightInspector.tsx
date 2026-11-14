@@ -1,5 +1,13 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Info, Trash2, XCircle } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FlaskConical,
+  Info,
+  Sparkles,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import {
   type BondOrder,
   DATASET_PROVENANCE,
@@ -16,6 +24,10 @@ import { useLabStore } from '../state/useLabStore';
 export const RightInspector: React.FC = () => {
   const molecule = useLabStore((s) => s.molecule);
   const validation = useLabStore((s) => s.validation);
+  const rdkitReport = useLabStore((s) => s.rdkitReport);
+  const lastConformerMeta = useLabStore((s) => s.lastConformerMeta);
+  const serviceStatus = useLabStore((s) => s.serviceStatus);
+  const isScienceBusy = useLabStore((s) => s.isScienceBusy);
   const selectedAtomIds = useLabStore((s) => s.selectedAtomIds);
   const selectedBondId = useLabStore((s) => s.selectedBondId);
 
@@ -24,6 +36,8 @@ export const RightInspector: React.FC = () => {
   const deleteAtom = useLabStore((s) => s.deleteAtom);
   const createOrUpdateBond = useLabStore((s) => s.createOrUpdateBond);
   const deleteBond = useLabStore((s) => s.deleteBond);
+  const runRdkitValidation = useLabStore((s) => s.runRdkitValidation);
+  const runRdkitConformer = useLabStore((s) => s.runRdkitConformer);
 
   const selectedAtom =
     selectedAtomIds.length === 1
@@ -293,9 +307,112 @@ export const RightInspector: React.FC = () => {
           <span className="field-label">Revision</span>
           <span className="inspector-value mono">{molecule.revisionId}</span>
 
+          <span className="field-label">Geometry Status</span>
+          <span className="inspector-value mono">{molecule.provenance.geometryStatus}</span>
+
           <span className="field-label">Provenance</span>
           <span className="inspector-value">{molecule.provenance.summary}</span>
         </div>
+      </section>
+
+      <section className="panel-section">
+        <div className="panel-heading-row">
+          <h2 className="panel-heading">RDKit Science Service</h2>
+          <span
+            className={`badge ${
+              rdkitReport && rdkitReport.structureRevisionId === molecule.revisionId
+                ? 'badge-ok'
+                : 'badge-muted'
+            }`}
+          >
+            {serviceStatus.rdkitAvailable
+              ? `RDKit ${serviceStatus.rdkitVersion ?? ''}`.trim()
+              : 'Offline'}
+          </span>
+        </div>
+
+        <div className="rdkit-action-row">
+          <button
+            type="button"
+            className="btn btn-xs btn-primary"
+            disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+            onClick={() => void runRdkitValidation()}
+          >
+            <FlaskConical size={12} aria-hidden="true" />
+            <span>Validate</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-xs btn-secondary"
+            disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+            onClick={() => void runRdkitConformer()}
+            title="Generate 3D conformer using RDKit ETKDGv3 (not energy-minimized)"
+          >
+            <Sparkles size={12} aria-hidden="true" />
+            <span>Conformer (ETKDGv3)</span>
+          </button>
+        </div>
+
+        {!serviceStatus.rdkitAvailable && (
+          <p className="muted small-text">{serviceStatus.detail}</p>
+        )}
+
+        {rdkitReport && rdkitReport.structureRevisionId !== molecule.revisionId && (
+          <p className="diag-warning small-text">
+            Previous RDKit result was for revision <code>{rdkitReport.structureRevisionId}</code>;
+            re-validate to inspect current revision <code>{molecule.revisionId}</code>.
+          </p>
+        )}
+
+        {rdkitReport && rdkitReport.structureRevisionId === molecule.revisionId && (
+          <div className="rdkit-report-box">
+            <div className={`validation-status status-${rdkitReport.status === 'valid-rdkit' ? 'valid-provisional' : rdkitReport.status}`}>
+              <span>{rdkitReport.status}</span>
+            </div>
+            {rdkitReport.descriptors && (
+              <div className="inspector-grid">
+                <span className="field-label">SMILES</span>
+                <span className="inspector-value mono">
+                  {rdkitReport.descriptors.canonicalSmiles ?? '—'}
+                </span>
+                <span className="field-label">InChIKey</span>
+                <span className="inspector-value mono small-text">
+                  {rdkitReport.descriptors.inchikey ?? '—'}
+                </span>
+                <span className="field-label">Exact Mass</span>
+                <span className="inspector-value mono">
+                  {rdkitReport.descriptors.exactMassU.toFixed(6)} u
+                </span>
+                <span className="field-label">Rings / Arom.</span>
+                <span className="inspector-value mono">
+                  {rdkitReport.descriptors.ringCount} / {rdkitReport.descriptors.aromaticAtomCount} atoms
+                </span>
+                <span className="field-label">HBD / HBA</span>
+                <span className="inspector-value mono">
+                  {rdkitReport.descriptors.hbdCount} / {rdkitReport.descriptors.hbaCount}
+                </span>
+                <span className="field-label">TPSA</span>
+                <span className="inspector-value mono">
+                  {rdkitReport.descriptors.tpsaAngstrom2.toFixed(2)} Å²
+                </span>
+              </div>
+            )}
+            <ul className="diagnostic-list">
+              {rdkitReport.diagnostics.map((d, idx) => (
+                <li key={`${d.code}-${idx}`} className={`diag-item diag-${d.severity}`}>
+                  <strong>{d.code}:</strong> {d.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {lastConformerMeta && (
+          <p className="scientific-note">
+            Conformer: {lastConformerMeta.method} (seed={lastConformerMeta.randomSeed},
+            energy_minimized={String(lastConformerMeta.energyMinimized)}).
+          </p>
+        )}
       </section>
 
       <section className="panel-section">

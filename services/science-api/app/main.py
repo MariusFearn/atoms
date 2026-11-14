@@ -1,42 +1,34 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+
+from app.adapters.rdkit.adapter import (
+    MVP_BASELINE_ELEMENTS,
+    RdkitAdapterError,
+    export_mol_block,
+    generate_conformer,
+    import_mol_block,
+    rdkit_version,
+    validate_molecule,
+)
+from app.models.contracts import (
+    AdapterCapability,
+    ApiErrorDetail,
+    CapabilitiesResponse,
+    ConformerRequest,
+    ConformerResponse,
+    ElementSummary,
+    HealthResponse,
+    MolExportRequest,
+    MolExportResponse,
+    MolImportRequest,
+    MolImportResponse,
+    ValidateMoleculeRequest,
+    ValidationResponse,
+)
 
 API_VERSION = "0.1.0"
-
-
-class HealthResponse(BaseModel):
-    status: Literal["ok"]
-    service: str
-    version: str
-    mode: Literal["prototype-scaffold"]
-
-
-class AdapterCapability(BaseModel):
-    adapter: str
-    available: bool
-    version: str | None
-    supported_elements: list[str]
-    supported_operations: list[str]
-    limitations: list[str]
-
-
-class CapabilitiesResponse(BaseModel):
-    api_version: str
-    adapters: list[AdapterCapability]
-
-
-class ElementSummary(BaseModel):
-    atomic_number: int
-    symbol: str
-    name: str
-    standard_atomic_weight_u: float
-    provenance: str
-
 
 BASELINE_ELEMENTS: list[ElementSummary] = [
     ElementSummary(atomic_number=1, symbol="H", name="Hydrogen", standard_atomic_weight_u=1.008, provenance="IUPAC CIAAW 2021 abridged standard atomic weight"),
@@ -52,11 +44,23 @@ BASELINE_ELEMENTS: list[ElementSummary] = [
 ]
 
 
+def _raise_http_error(exc: RdkitAdapterError) -> None:
+    raise HTTPException(
+        status_code=exc.http_status,
+        detail=ApiErrorDetail(
+            code=exc.code,
+            message=exc.message,
+            field_path=exc.field_path,
+            retryable=exc.retryable,
+        ).model_dump(),
+    ) from exc
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="MatterLab Science API",
         version=API_VERSION,
-        description="Typed scientific engine boundary for MatterLab.",
+        description="Typed scientific engine boundary for MatterLab (RDKit enabled).",
     )
 
     app.add_middleware(
@@ -72,7 +76,7 @@ def create_app() -> FastAPI:
             status="ok",
             service="matterlab-science-api",
             version=API_VERSION,
-            mode="prototype-scaffold",
+            mode="rdkit-enabled",
         )
 
     @app.get("/api/v1/capabilities", response_model=CapabilitiesResponse)
@@ -82,12 +86,20 @@ def create_app() -> FastAPI:
             adapters=[
                 AdapterCapability(
                     adapter="rdkit",
-                    available=False,
-                    version=None,
-                    supported_elements=["H", "C", "N", "O", "F", "P", "S", "Cl", "Br", "I"],
-                    supported_operations=[],
+                    available=True,
+                    version=rdkit_version(),
+                    supported_elements=list(MVP_BASELINE_ELEMENTS),
+                    supported_operations=[
+                        "validate_structure",
+                        "molecular_descriptors",
+                        "conformer_etkdgv3",
+                        "mol_v2000_import",
+                        "mol_v2000_export",
+                    ],
                     limitations=[
-                        "RDKit integration is scheduled for Milestone 3 and is not yet enabled in this prototype scaffold."
+                        "Requires explicit hydrogen atoms and closed-shell single-component structures.",
+                        "Stereochemistry editing, radicals, coordination complexes, and multi-component mixtures are deferred.",
+                        "Generated ETKDGv3 conformers are not experimentally determined or energy-minimized.",
                     ],
                 ),
                 AdapterCapability(
@@ -115,12 +127,38 @@ def create_app() -> FastAPI:
                 return el
         raise HTTPException(
             status_code=404,
-            detail={
-                "code": "ELEMENT_NOT_FOUND",
-                "message": f"Element '{symbol}' is not in the approved MVP chemistry baseline.",
-                "retryable": False,
-            },
+            detail=ApiErrorDetail(
+                code="ELEMENT_NOT_FOUND",
+                message=f"Element '{symbol}' is not in the approved MVP chemistry baseline.",
+                field_path="symbol",
+                retryable=False,
+            ).model_dump(),
         )
+
+    @app.post("/api/v1/molecules/validate", response_model=ValidationResponse)
+    def post_validate_molecule(req: ValidateMoleculeRequest) -> ValidationResponse:
+        return validate_molecule(req.molecule)
+
+    @app.post("/api/v1/molecules/conformers", response_model=ConformerResponse)
+    def post_generate_conformer(req: ConformerRequest) -> ConformerResponse:
+        try:
+            return generate_conformer(req.molecule, random_seed=req.random_seed)
+        except RdkitAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.post("/api/v1/molecules/export/mol", response_model=MolExportResponse)
+    def post_export_mol(req: MolExportRequest) -> MolExportResponse:
+        try:
+            return export_mol_block(req.molecule)
+        except RdkitAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.post("/api/v1/molecules/import/mol", response_model=MolImportResponse)
+    def post_import_mol(req: MolImportRequest) -> MolImportResponse:
+        try:
+            return import_mol_block(req.mol_text, name=req.name)
+        except RdkitAdapterError as exc:
+            _raise_http_error(exc)
 
     return app
 

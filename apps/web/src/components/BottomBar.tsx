@@ -1,11 +1,14 @@
 import React from 'react';
-import { Wifi, WifiOff } from 'lucide-react';
+import { FlaskConical, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { useLabStore } from '../state/useLabStore';
 
 export const BottomBar: React.FC = () => {
   const serviceStatus = useLabStore((s) => s.serviceStatus);
+  const isScienceBusy = useLabStore((s) => s.isScienceBusy);
   const statusBanner = useLabStore((s) => s.statusBanner);
   const clearStatusBanner = useLabStore((s) => s.clearStatusBanner);
+  const runRdkitValidation = useLabStore((s) => s.runRdkitValidation);
+  const runRdkitConformer = useLabStore((s) => s.runRdkitConformer);
 
   return (
     <footer className="bottombar">
@@ -27,27 +30,31 @@ export const BottomBar: React.FC = () => {
         <button
           type="button"
           className="btn btn-xs btn-secondary"
-          disabled={!serviceStatus.rdkitAvailable}
+          disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+          onClick={() => void runRdkitValidation()}
           title={
             serviceStatus.rdkitAvailable
-              ? 'Validate with RDKit'
-              : 'Disabled: RDKit service integration is scheduled for Milestone 3'
+              ? 'Validate structure and compute descriptors using RDKit'
+              : 'Disabled: requires the RDKit science service'
           }
         >
-          RDKit Validate (M3)
+          <FlaskConical size={12} aria-hidden="true" />
+          <span>{isScienceBusy ? 'Running…' : 'RDKit Validate'}</span>
         </button>
 
         <button
           type="button"
           className="btn btn-xs btn-secondary"
-          disabled={!serviceStatus.rdkitAvailable}
+          disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+          onClick={() => void runRdkitConformer()}
           title={
             serviceStatus.rdkitAvailable
-              ? 'Generate 3D conformer via RDKit'
-              : 'Disabled: RDKit conformer generation is scheduled for Milestone 3'
+              ? 'Generate 3D conformer via RDKit ETKDGv3 (not energy-minimized)'
+              : 'Disabled: requires the RDKit science service'
           }
         >
-          Generate Conformer (M3)
+          <Sparkles size={12} aria-hidden="true" />
+          <span>Generate Conformer</span>
         </button>
       </div>
 

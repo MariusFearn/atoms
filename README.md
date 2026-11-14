@@ -6,7 +6,7 @@ See [MatterLab_Project_Specification.md](./MatterLab_Project_Specification.md) f
 
 ## Current Milestone Status
 
-This workspace implements the **Milestone 0–2 Prototype Foundation** (plus the `uv`-managed `services/science-api` scaffold ahead of Milestone 3 RDKit integration):
+This workspace implements **Milestones 0–3** (3D molecule editor, typed domain/client contracts, and RDKit cheminformatics integration via the `uv`-managed Python science service):
 
 - **Web Application (`apps/web`)**: React 19 + TypeScript + Vite + Three.js (WebGL2 instanced rendering) + Zustand.
   - Interactive 3D viewport with camera orbit, pan, zoom, reset, and fit-to-scene.
@@ -15,9 +15,9 @@ This workspace implements the **Milestone 0–2 Prototype Foundation** (plus the
   - Element palette for the approved MVP chemistry baseline (`H, C, N, O, F, P, S, Cl, Br, I`).
   - Atom placement, 3D drag or keyboard coordinate editing (Å), explicit single/double/triple/aromatic bond creation, undo/redo, and local `.matterlab.json` project save/open.
   - Curated reference examples: Water (`H₂O`), Carbon Dioxide (`CO₂`), Methane (`CH₄`), and Benzene (`C₆H₆`).
-  - Provisional client-side structure validation (explicitly labeled as prototype-only until Milestone 3 RDKit integration).
-- **Domain Package (`packages/domain`)**: Typed `Quantity` units and conversions, IUPAC/NIST/Cordero/Bondi reference element data, explicit-atom formula calculation, structural integrity checks, provisional valence validation, and versioned JSON project persistence (`matterlab.project.v1`).
-- **Science API Scaffold (`services/science-api`)**: Python FastAPI service managed with `uv` (`pyproject.toml` + `uv.lock`), providing `/api/v1/health`, `/api/v1/capabilities`, and `/api/v1/elements` with honest reporting of deferred RDKit/OpenMM adapters.
+  - RDKit validation & molecular descriptors, ETKDGv3 conformer generation (explicitly labeled as generated and not energy-minimized), and single-structure MOL/SDF import/export when `science-api` is running.
+- **Domain & Client Packages (`packages/domain`, `packages/simulation-client`)**: Typed `Quantity` units and conversions, IUPAC/NIST/Cordero/Bondi reference element data, explicit-atom formula calculation, structural integrity checks, provisional valence validation, versioned JSON project persistence (`matterlab.project.v1`), and typed `snake_case` <-> `camelCase` API boundary mapping.
+- **Science API Service (`services/science-api`)**: Python FastAPI service managed with `uv` (`pyproject.toml` + `uv.lock`) and **RDKit** (`rdkit`), providing `/api/v1/health`, `/api/v1/capabilities`, `/api/v1/elements`, `/api/v1/molecules/validate`, `/api/v1/molecules/conformers`, `/api/v1/molecules/import/mol`, and `/api/v1/molecules/export/mol` while honestly reporting OpenMM (Milestone 4) as unavailable.
 
 ## Prerequisites
 

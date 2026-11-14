@@ -288,6 +288,22 @@ select:focus-visible {
   border: 1px solid rgba(251, 191, 36, 0.35);
 }
 
+.badge-ok {
+  background: rgba(52, 211, 153, 0.14);
+  color: var(--ok);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.rdkit-action-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.rdkit-report-box {
+  margin-top: 6px;
+}
+
 /* Sidebars */
 .sidebar {
   width: 295px;

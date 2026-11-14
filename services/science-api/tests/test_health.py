@@ -10,15 +10,18 @@ def test_health() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["mode"] == "prototype-scaffold"
+    assert payload["mode"] == "rdkit-enabled"
 
 
-def test_capabilities_honestly_reports_deferred_adapters() -> None:
+def test_capabilities_honestly_reports_rdkit_and_deferred_openmm() -> None:
     response = client.get("/api/v1/capabilities")
     assert response.status_code == 200
     payload = response.json()
     adapters = {item["adapter"]: item for item in payload["adapters"]}
-    assert adapters["rdkit"]["available"] is False
+    assert adapters["rdkit"]["available"] is True
+    assert adapters["rdkit"]["version"] is not None
+    assert "validate_structure" in adapters["rdkit"]["supported_operations"]
+    assert "conformer_etkdgv3" in adapters["rdkit"]["supported_operations"]
     assert adapters["openmm"]["available"] is False
 
 

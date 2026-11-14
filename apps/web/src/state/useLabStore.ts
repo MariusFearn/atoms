@@ -16,6 +16,16 @@ import {
   serializeProject,
   validateChemistryProvisional,
 } from '@matterlab/domain';
+import {
+  type RdkitConformerResult,
+  type RdkitValidationResult,
+  ScienceApiError,
+  exportMolBlockWithRdkit,
+  fetchCapabilities,
+  generateConformerWithRdkit,
+  importMolBlockWithRdkit,
+  validateMoleculeWithRdkit,
+} from '@matterlab/simulation-client';
 
 export type EditorTool = 'select' | 'place-atom' | 'bond';
 export type WorkspaceTab = 'molecule' | 'atom' | 'experiment';
@@ -24,6 +34,7 @@ export interface ServiceStatusState {
   state: 'checking' | 'connected' | 'offline';
   modeLabel: string;
   rdkitAvailable: boolean;
+  rdkitVersion: string | null;
   openmmAvailable: boolean;
   detail: string;
 }
@@ -38,6 +49,9 @@ export interface LabState {
   workspaceTab: WorkspaceTab;
   molecule: Molecule;
   validation: StructureValidationReport;
+  rdkitReport: RdkitValidationResult | null;
+  lastConformerMeta: Omit<RdkitConformerResult, 'positionsAngstrom'> | null;
+  isScienceBusy: boolean;
   past: LabSnapshot[];
   future: LabSnapshot[];
   hasUnsavedChanges: boolean;
@@ -113,6 +127,10 @@ export interface LabState {
   clearStatusBanner: () => void;
   setStatusBanner: (banner: { kind: 'info' | 'warning' | 'error'; message: string }) => void;
   checkScienceService: () => Promise<void>;
+  runRdkitValidation: () => Promise<RdkitValidationResult | null>;
+  runRdkitConformer: (randomSeed?: number) => Promise<boolean>;
+  importMolFile: (molText: string, name?: string) => Promise<boolean>;
+  exportMolFile: () => Promise<{ molBlock: string; suggestedName: string } | null>;
 }
 
 let revisionCounter = 1;
@@ -201,6 +219,9 @@ export const useLabStore = create<LabState>((set, get) => ({
   workspaceTab: 'molecule',
   molecule: initialWater,
   validation: validateChemistryProvisional(initialWater),
+  rdkitReport: null,
+  lastConformerMeta: null,
+  isScienceBusy: false,
   past: [],
   future: [],
   hasUnsavedChanges: false,
@@ -228,6 +249,7 @@ export const useLabStore = create<LabState>((set, get) => ({
     state: 'checking',
     modeLabel: 'Checking science service…',
     rdkitAvailable: false,
+    rdkitVersion: null,
     openmmAvailable: false,
     detail: 'Connecting to optional local science-api.',
   },
@@ -524,6 +546,8 @@ export const useLabStore = create<LabState>((set, get) => ({
         projectName: `${found.title} Reference`,
         molecule: mol,
         validation: validateChemistryProvisional(mol),
+        rdkitReport: null,
+        lastConformerMeta: null,
         past: [],
         future: [],
         hasUnsavedChanges: false,
@@ -545,6 +569,8 @@ export const useLabStore = create<LabState>((set, get) => ({
         projectName: 'Untitled Project',
         molecule: empty,
         validation: validateChemistryProvisional(empty),
+        rdkitReport: null,
+        lastConformerMeta: null,
         past: [],
         future: [],
         hasUnsavedChanges: false,
@@ -586,6 +612,8 @@ export const useLabStore = create<LabState>((set, get) => ({
         projectName: parsed.projectName,
         molecule: parsed.molecule,
         validation: validateChemistryProvisional(parsed.molecule),
+        rdkitReport: null,
+        lastConformerMeta: null,
         representation: parsed.viewSettings.representation,
         colorPalette: parsed.viewSettings.colorPalette,
         showLabels: parsed.viewSettings.showLabels,
@@ -625,25 +653,23 @@ export const useLabStore = create<LabState>((set, get) => ({
 
   checkScienceService: async () => {
     try {
-      const res = await fetch('/api/v1/capabilities');
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-      const data = (await res.json()) as {
-        api_version: string;
-        adapters: Array<{ adapter: string; available: boolean }>;
-      };
-      const rdkit = data.adapters.find((a) => a.adapter === 'rdkit')?.available ?? false;
-      const openmm = data.adapters.find((a) => a.adapter === 'openmm')?.available ?? false;
+      const data = await fetchCapabilities();
+      const rdkit = data.adapters.find((a) => a.adapter === 'rdkit');
+      const openmm = data.adapters.find((a) => a.adapter === 'openmm');
+      const rdkitAvailable = rdkit?.available ?? false;
+      const openmmAvailable = openmm?.available ?? false;
       set({
         serviceStatus: {
           state: 'connected',
-          modeLabel: `Science API v${data.api_version} connected`,
-          rdkitAvailable: rdkit,
-          openmmAvailable: openmm,
-          detail: rdkit
-            ? 'RDKit validation ready.'
-            : 'Prototype scaffold connected; RDKit (Milestone 3) and OpenMM (Milestone 4) are not enabled yet.',
+          modeLabel: rdkitAvailable
+            ? `Science API v${data.api_version} · RDKit ${rdkit?.version ?? ''}`.trim()
+            : `Science API v${data.api_version} connected`,
+          rdkitAvailable,
+          rdkitVersion: rdkit?.version ?? null,
+          openmmAvailable,
+          detail: rdkitAvailable
+            ? 'RDKit validation, descriptors, ETKDGv3 conformers, and MOL interchange ready.'
+            : 'Service connected without RDKit enabled.',
         },
       });
     } catch {
@@ -652,11 +678,205 @@ export const useLabStore = create<LabState>((set, get) => ({
           state: 'offline',
           modeLabel: 'Local editor mode (Science API offline)',
           rdkitAvailable: false,
+          rdkitVersion: null,
           openmmAvailable: false,
           detail:
-            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit validation and conformers are disabled.',
+            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit validation, conformers, and MOL interchange are disabled.',
         },
       });
+    }
+  },
+
+  runRdkitValidation: async () => {
+    const submittedMolecule = cloneMolecule(get().molecule);
+    const submittedRevisionId = submittedMolecule.revisionId;
+    set({ isScienceBusy: true });
+
+    try {
+      const result = await validateMoleculeWithRdkit(submittedMolecule);
+      if (get().molecule.revisionId !== submittedRevisionId) {
+        set({
+          isScienceBusy: false,
+          statusBanner: {
+            kind: 'warning',
+            message: `Structure was edited while validating ${submittedRevisionId}; discarded stale RDKit result.`,
+          },
+        });
+        return null;
+      }
+
+      set({
+        isScienceBusy: false,
+        rdkitReport: result,
+        statusBanner: {
+          kind: result.status === 'valid-rdkit' ? 'info' : 'warning',
+          message:
+            result.status === 'valid-rdkit'
+              ? `RDKit ${result.engineVersion}: Validated ${result.descriptors?.explicitFormula ?? submittedMolecule.name} (${result.descriptors?.canonicalSmiles ?? ''}).`
+              : `RDKit ${result.engineVersion}: ${result.status} — ${result.diagnostics[0]?.message ?? 'See inspector.'}`,
+        },
+      });
+      return result;
+    } catch (err) {
+      const apiErr = err instanceof ScienceApiError ? err : null;
+      if (apiErr?.code === 'SERVICE_UNAVAILABLE') {
+        set({
+          isScienceBusy: false,
+          serviceStatus: {
+            state: 'offline',
+            modeLabel: 'Local editor mode (Science API offline)',
+            rdkitAvailable: false,
+            rdkitVersion: null,
+            openmmAvailable: false,
+            detail:
+              'Lost connection to Science API. Local editing and JSON save/load remain available.',
+          },
+          statusBanner: {
+            kind: 'error',
+            message: 'Science API is unavailable. Editing and JSON save/load remain active.',
+          },
+        });
+      } else {
+        set({
+          isScienceBusy: false,
+          statusBanner: {
+            kind: 'error',
+            message: err instanceof Error ? err.message : 'RDKit validation request failed.',
+          },
+        });
+      }
+      return null;
+    }
+  },
+
+  runRdkitConformer: async (randomSeed = 42) => {
+    const submittedMolecule = cloneMolecule(get().molecule);
+    const submittedRevisionId = submittedMolecule.revisionId;
+    set({ isScienceBusy: true });
+
+    try {
+      const result = await generateConformerWithRdkit(submittedMolecule, randomSeed);
+      if (get().molecule.revisionId !== submittedRevisionId) {
+        set({
+          isScienceBusy: false,
+          statusBanner: {
+            kind: 'warning',
+            message: `Structure changed during conformer generation (${submittedRevisionId}); did not overwrite edited coordinates.`,
+          },
+        });
+        return false;
+      }
+
+      const { positionsAngstrom, ...meta } = result;
+      set((state) => {
+        const snapshot: LabSnapshot = {
+          molecule: cloneMolecule(state.molecule),
+          projectName: state.projectName,
+        };
+        const nextMol = cloneMolecule(state.molecule);
+        nextMol.atoms = nextMol.atoms.map((a) => {
+          const coords = positionsAngstrom[a.id];
+          return coords ? { ...a, positionAngstrom: [...coords] as [number, number, number] } : a;
+        });
+        nextMol.revisionId = nextRevisionId(nextMol.id);
+        nextMol.provenance = {
+          sourceKind: 'user-constructed',
+          summary: `Generated 3D conformer via ${result.method} (RDKit ${result.engineVersion}, seed=${result.randomSeed}; not experimentally determined or energy-minimized).`,
+          geometryStatus: 'rdkit-conformer',
+        };
+
+        return {
+          isScienceBusy: false,
+          molecule: nextMol,
+          validation: validateChemistryProvisional(nextMol),
+          rdkitReport: null,
+          lastConformerMeta: meta,
+          past: [...state.past.slice(-49), snapshot],
+          future: [],
+          hasUnsavedChanges: true,
+          cameraFitNonce: state.cameraFitNonce + 1,
+          statusBanner: {
+            kind: 'info',
+            message: `Generated RDKit ETKDGv3 conformer (seed=${result.randomSeed}, not energy-minimized).`,
+          },
+        };
+      });
+      return true;
+    } catch (err) {
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'RDKit conformer generation failed.',
+        },
+      });
+      return false;
+    }
+  },
+
+  importMolFile: async (molText, name) => {
+    set({ isScienceBusy: true });
+    try {
+      const res = await importMolBlockWithRdkit(molText, name);
+      set((state) => ({
+        isScienceBusy: false,
+        projectName: res.molecule.name,
+        molecule: res.molecule,
+        validation: validateChemistryProvisional(res.molecule),
+        rdkitReport: null,
+        lastConformerMeta: null,
+        past: [],
+        future: [],
+        hasUnsavedChanges: true,
+        selectedAtomIds: res.molecule.atoms[0] ? [res.molecule.atoms[0].id] : [],
+        selectedBondId: null,
+        pendingBondSourceAtomId: null,
+        cameraFitNonce: state.cameraFitNonce + 1,
+        statusBanner: {
+          kind: 'info',
+          message: `Imported MOL structure "${res.molecule.name}" (${res.molecule.atoms.length} atoms) via RDKit ${res.engineVersion}.`,
+        },
+      }));
+      return true;
+    } catch (err) {
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Failed to import MOL/SDF file.',
+        },
+      });
+      return false;
+    }
+  },
+
+  exportMolFile: async () => {
+    const state = get();
+    set({ isScienceBusy: true });
+    try {
+      const res = await exportMolBlockWithRdkit(state.molecule);
+      const slug =
+        state.projectName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'matterlab-molecule';
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'info',
+          message: `Exported ${slug}.mol (MOL V2000) via RDKit ${res.engineVersion}.`,
+        },
+      });
+      return { molBlock: res.molBlock, suggestedName: `${slug}.mol` };
+    } catch (err) {
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Failed to export MOL file.',
+        },
+      });
+      return null;
     }
   },
 }));
