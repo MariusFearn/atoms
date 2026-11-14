@@ -3,12 +3,15 @@ import { FlaskConical, Sparkles, Wifi, WifiOff } from 'lucide-react';
 import { useLabStore } from '../state/useLabStore';
 
 export const BottomBar: React.FC = () => {
+  const workspaceTab = useLabStore((s) => s.workspaceTab);
   const serviceStatus = useLabStore((s) => s.serviceStatus);
   const isScienceBusy = useLabStore((s) => s.isScienceBusy);
   const statusBanner = useLabStore((s) => s.statusBanner);
   const clearStatusBanner = useLabStore((s) => s.clearStatusBanner);
   const runRdkitValidation = useLabStore((s) => s.runRdkitValidation);
   const runRdkitConformer = useLabStore((s) => s.runRdkitConformer);
+  const isChemistryTab =
+    workspaceTab === 'molecule' || workspaceTab === 'experiment' || workspaceTab === 'quantum';
 
   return (
     <footer className="bottombar">
@@ -30,12 +33,14 @@ export const BottomBar: React.FC = () => {
         <button
           type="button"
           className="btn btn-xs btn-secondary"
-          disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+          disabled={!isChemistryTab || !serviceStatus.rdkitAvailable || isScienceBusy}
           onClick={() => void runRdkitValidation()}
           title={
-            serviceStatus.rdkitAvailable
-              ? 'Validate structure and compute descriptors using RDKit'
-              : 'Disabled: requires the RDKit science service'
+            !isChemistryTab
+              ? 'Applies to molecular structure tabs'
+              : serviceStatus.rdkitAvailable
+                ? 'Validate structure and compute descriptors using RDKit'
+                : 'Disabled: requires the RDKit science service'
           }
         >
           <FlaskConical size={12} aria-hidden="true" />
@@ -45,12 +50,14 @@ export const BottomBar: React.FC = () => {
         <button
           type="button"
           className="btn btn-xs btn-secondary"
-          disabled={!serviceStatus.rdkitAvailable || isScienceBusy}
+          disabled={!isChemistryTab || !serviceStatus.rdkitAvailable || isScienceBusy}
           onClick={() => void runRdkitConformer()}
           title={
-            serviceStatus.rdkitAvailable
-              ? 'Generate 3D conformer via RDKit ETKDGv3 (not energy-minimized)'
-              : 'Disabled: requires the RDKit science service'
+            !isChemistryTab
+              ? 'Applies to molecular structure tabs'
+              : serviceStatus.rdkitAvailable
+                ? 'Generate 3D conformer via RDKit ETKDGv3 (not energy-minimized)'
+                : 'Disabled: requires the RDKit science service'
           }
         >
           <Sparkles size={12} aria-hidden="true" />

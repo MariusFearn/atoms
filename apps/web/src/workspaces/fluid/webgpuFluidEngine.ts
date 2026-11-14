@@ -1234,8 +1234,8 @@ export class WebGpuFluidEngine {
       this.device.queue.writeBuffer(this.uniformBuf, 0, this.uniformBytes);
     };
 
-    if (!config.paused && this.activeCount > 0) {
-      const substeps = 2;
+    if ((!config.paused || params.stirMode === 2) && this.activeCount > 0) {
+      const substeps = config.paused ? 1 : 2;
       const clearWg = Math.ceil(GRID_TOTAL_CELLS / 128);
       const partWg = Math.ceil(this.activeCount / 128);
 

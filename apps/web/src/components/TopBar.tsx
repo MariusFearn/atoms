@@ -298,11 +298,13 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         <select
           id="representation-select"
           className="compact-select"
+          disabled={workspaceTab === 'atom' || workspaceTab === 'nuclear' || workspaceTab === 'fluid'}
           value={representation}
           onChange={(e) =>
             setRepresentation(e.target.value as 'ball-and-stick' | 'space-filling')
           }
           aria-label="Visual representation"
+          title="Molecular representation (Molecule / Experiment / Quantum tabs)"
         >
           <option value="ball-and-stick">Ball &amp; Stick</option>
           <option value="space-filling">Space-Filling (vdW)</option>
@@ -314,9 +316,11 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         <select
           id="palette-select"
           className="compact-select"
+          disabled={workspaceTab === 'atom' || workspaceTab === 'nuclear' || workspaceTab === 'fluid'}
           value={colorPalette}
           onChange={(e) => setColorPalette(e.target.value as 'cpk' | 'colorblind')}
           aria-label="Element color palette"
+          title="Element color palette (Molecule / Experiment / Quantum tabs)"
         >
           <option value="cpk">CPK Colors</option>
           <option value="colorblind">Colorblind-Safe</option>
@@ -326,24 +330,27 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
           <button
             type="button"
             className={`toggle-pill ${showLabels ? 'is-on' : ''}`}
+            disabled={workspaceTab === 'atom' || workspaceTab === 'fluid'}
             onClick={toggleLabels}
             aria-pressed={showLabels}
-            title="Toggle atom labels"
+            title="Toggle atom/particle labels"
           >
             Labels
           </button>
           <button
             type="button"
             className={`toggle-pill ${showBonds ? 'is-on' : ''}`}
+            disabled={workspaceTab === 'atom' || workspaceTab === 'nuclear' || workspaceTab === 'fluid'}
             onClick={toggleBonds}
             aria-pressed={showBonds}
-            title="Toggle bond cylinders"
+            title="Toggle molecular bond cylinders"
           >
             Bonds
           </button>
           <button
             type="button"
             className={`toggle-pill ${showAxes ? 'is-on' : ''}`}
+            disabled={workspaceTab === 'fluid'}
             onClick={toggleAxes}
             aria-pressed={showAxes}
             title="Toggle XYZ axes"
@@ -353,6 +360,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
           <button
             type="button"
             className={`toggle-pill ${showGrid ? 'is-on' : ''}`}
+            disabled={workspaceTab === 'fluid'}
             onClick={toggleGrid}
             aria-pressed={showGrid}
             title="Toggle coordinate grid"
@@ -374,9 +382,10 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         <button
           type="button"
           className="btn btn-icon"
+          disabled={workspaceTab === 'atom' || workspaceTab === 'nuclear' || workspaceTab === 'fluid'}
           onClick={triggerCameraFit}
           aria-label="Fit molecule in viewport"
-          title="Fit molecule to view"
+          title="Fit molecule to view (Molecule / Experiment / Quantum tabs)"
         >
           <Maximize2 size={15} aria-hidden="true" />
         </button>
@@ -392,6 +401,7 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         <button
           type="button"
           className="btn btn-icon btn-danger-subtle"
+          disabled={workspaceTab !== 'molecule'}
           onClick={() =>
             onRequestProtectedAction(
               'Clear Scene',
@@ -400,7 +410,11 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
             )
           }
           aria-label="Clear scene to empty structure"
-          title="Clear scene"
+          title={
+            workspaceTab === 'molecule'
+              ? 'Clear molecule structure'
+              : 'Clear molecule (Molecule Editor tab)'
+          }
         >
           <Trash2 size={15} aria-hidden="true" />
         </button>

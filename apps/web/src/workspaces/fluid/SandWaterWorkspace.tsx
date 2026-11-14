@@ -292,13 +292,24 @@ export const SandWaterWorkspace: React.FC = () => {
           </div>
 
           <div className="qc-checkbox-row">
-            <label className="field-label" htmlFor="fluid-obstacle-toggle">
-              Center Tank Barrier
+            <label
+              className="field-label"
+              htmlFor="fluid-obstacle-toggle"
+              title={
+                fluidContainerMode === 'glass'
+                  ? 'Switch to Lab Tank container to use Center Barrier'
+                  : 'Toggle solid barrier in the middle of the Lab Tank'
+              }
+            >
+              {fluidContainerMode === 'glass'
+                ? 'Center Barrier (Lab Tank only)'
+                : 'Center Tank Barrier'}
             </label>
             <input
               id="fluid-obstacle-toggle"
               type="checkbox"
-              checked={fluidConfig.hasObstacle}
+              disabled={fluidContainerMode === 'glass'}
+              checked={fluidContainerMode === 'tank' && fluidConfig.hasObstacle}
               onChange={(e) =>
                 updateFluidConfig({ hasObstacle: e.target.checked })
               }
@@ -332,8 +343,16 @@ export const SandWaterWorkspace: React.FC = () => {
                 </span>
               </div>
               <div className="stat-card">
-                <span className="field-label">Kinetic Energy</span>
-                <span className="stat-val mono">{fluidStats.kineticEnergy.toFixed(1)} units</span>
+                <span className="field-label">
+                  {fluidBackendLabel.startsWith('WebGPU')
+                    ? 'GPU Spatial Grid'
+                    : 'Kinetic Energy'}
+                </span>
+                <span className="stat-val mono">
+                  {fluidBackendLabel.startsWith('WebGPU')
+                    ? '52×40×26 (54k cells)'
+                    : `${fluidStats.kineticEnergy.toFixed(1)} units`}
+                </span>
               </div>
               <div className="stat-card">
                 <span className="field-label">Compute / Render</span>

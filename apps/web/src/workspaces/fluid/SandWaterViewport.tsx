@@ -116,6 +116,11 @@ export const SandWaterViewport: React.FC = () => {
         controls.target.set(0, 2.7, 0);
         controls.minDistance = 4;
         controls.maxDistance = 36;
+        controls.mouseButtons = {
+          LEFT: stInit.fluidTool === 'orbit' ? THREE.MOUSE.ROTATE : null,
+          MIDDLE: THREE.MOUSE.DOLLY,
+          RIGHT: THREE.MOUSE.ROTATE,
+        };
         controls.update();
 
         const ndcFix = new THREE.Matrix4().set(
@@ -217,6 +222,8 @@ export const SandWaterViewport: React.FC = () => {
             controls.target.set(0, 2.7, 0);
           }
 
+          controls.mouseButtons.LEFT =
+            st.fluidTool === 'orbit' ? THREE.MOUSE.ROTATE : null;
           controls.enableRotate = st.fluidTool === 'orbit' || !pointerActive;
           controls.update();
           camera.updateMatrixWorld();
@@ -445,7 +452,7 @@ export const SandWaterViewport: React.FC = () => {
       loadSandWaterPreset(cpuSimRef.current, fluidPresetId);
       useLabStore.getState().setFluidStats(computeSandWaterStats(cpuSimRef.current));
     }
-  }, [fluidPresetId, fluidContainerMode, fluidTargetParticleCount, fluidResetNonce, backendMode, fluidConfig.hasObstacle]);
+  }, [fluidPresetId, fluidContainerMode, fluidTargetParticleCount, fluidResetNonce, backendMode]);
 
   useEffect(() => {
     if (fluidClearNonce === 0) return;
