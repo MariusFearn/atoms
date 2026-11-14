@@ -1048,23 +1048,40 @@ export class WebGpuFluidEngine {
     this.updateContainerMesh(DEFAULT_GLASS_CONTAINER, false);
   }
 
-  static async create(canvas: HTMLCanvasElement): Promise<WebGpuFluidEngine | null> {
-    if (typeof navigator === 'undefined' || !navigator.gpu) return null;
+  static async create(
+    canvas: HTMLCanvasElement,
+  ): Promise<{ engine: WebGpuFluidEngine | null; reason: string }> {
+    if (typeof navigator === 'undefined' || !navigator.gpu) {
+      return { engine: null, reason: 'navigator.gpu unavailable' };
+    }
     try {
-      const adapter = await navigator.gpu.requestAdapter({
+      let adapter = await navigator.gpu.requestAdapter({
         powerPreference: 'high-performance',
       });
-      if (!adapter) return null;
+      if (!adapter) {
+        adapter = await navigator.gpu.requestAdapter();
+      }
+      if (!adapter) {
+        return { engine: null, reason: 'requestAdapter() returned null' };
+      }
       const device = await adapter.requestDevice();
       const context = canvas.getContext('webgpu');
-      if (!context) return null;
+      if (!context) {
+        return { engine: null, reason: 'canvas.getContext(webgpu) failed' };
+      }
       const format = navigator.gpu.getPreferredCanvasFormat();
-      context.configure({ device, format, alphaMode: 'opaque' });
+      context.configure({ device, format, alphaMode: 'premultiplied' });
       const info = (adapter as unknown as { info?: { device?: string; description?: string } }).info;
       const adapterName = info?.description || info?.device || 'WebGPU GPU';
-      return new WebGpuFluidEngine(device, context, format, adapterName);
-    } catch {
-      return null;
+      return {
+        engine: new WebGpuFluidEngine(device, context, format, adapterName),
+        reason: 'ok',
+      };
+    } catch (err) {
+      return {
+        engine: null,
+        reason: err instanceof Error ? err.message : 'WebGPU init error',
+      };
     }
   }
 

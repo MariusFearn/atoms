@@ -13,6 +13,7 @@ export interface SandWaterConfig {
   sandFriction: number;
   stiffness: number;
   hasObstacle: boolean;
+  isGlassMode?: boolean;
   paused: boolean;
 }
 
@@ -23,6 +24,7 @@ export const DEFAULT_SAND_WATER_CONFIG: SandWaterConfig = {
   sandFriction: 0.55,
   stiffness: 1.0,
   hasObstacle: false,
+  isGlassMode: false,
   paused: false,
 };
 
@@ -127,10 +129,88 @@ function deterministicJitter(seed: number): number {
 export function loadSandWaterPreset(
   state: SandWaterSimulationState,
   presetId: SandWaterPresetId,
+  isGlassMode = false,
 ): { hasObstacle: boolean } {
   state.count = 0;
   state.stepCount = 0;
   let seq = 1;
+
+  if (isGlassMode) {
+    if (presetId === 'sand-pile') {
+      for (let iy = 0; iy < 16; iy++) {
+        for (let x = -1.4; x <= 1.4; x += 0.17) {
+          for (let z = -1.4; z <= 1.4; z += 0.17) {
+            if (x * x + z * z <= 1.4 * 1.4) {
+              seq += 1;
+              spawnMacroParticle(
+                state,
+                'sand',
+                x + deterministicJitter(seq) * 0.02,
+                1.0 + iy * 0.17,
+                z + deterministicJitter(seq + 3) * 0.02,
+              );
+            }
+          }
+        }
+      }
+      return { hasObstacle: false };
+    }
+    if (presetId === 'dam-break') {
+      for (let iy = 0; iy < 18; iy++) {
+        for (let x = -1.2; x <= 1.2; x += 0.18) {
+          for (let z = -1.2; z <= 1.2; z += 0.18) {
+            if (x * x + z * z <= 1.2 * 1.2) {
+              seq += 1;
+              spawnMacroParticle(
+                state,
+                'water',
+                x - 0.35 + deterministicJitter(seq) * 0.02,
+                0.2 + iy * 0.18,
+                z + deterministicJitter(seq + 5) * 0.02,
+                1.2,
+                0,
+                0,
+              );
+            }
+          }
+        }
+      }
+      return { hasObstacle: false };
+    }
+    for (let iy = 0; iy < 10; iy++) {
+      for (let x = -1.7; x <= 1.7; x += 0.21) {
+        for (let z = -1.7; z <= 1.7; z += 0.21) {
+          if (x * x + z * z <= 1.7 * 1.7) {
+            seq += 1;
+            spawnMacroParticle(
+              state,
+              'water',
+              x + deterministicJitter(seq) * 0.02,
+              0.2 + iy * 0.19,
+              z + deterministicJitter(seq + 7) * 0.02,
+            );
+          }
+        }
+      }
+    }
+    for (let iy = 0; iy < 10; iy++) {
+      for (let x = -0.95; x <= 0.95; x += 0.18) {
+        for (let z = -0.95; z <= 0.95; z += 0.18) {
+          if (x * x + z * z <= 0.95 * 0.95) {
+            seq += 1;
+            spawnMacroParticle(
+              state,
+              'sand',
+              x + deterministicJitter(seq) * 0.02,
+              2.8 + iy * 0.18,
+              z + deterministicJitter(seq + 11) * 0.02,
+            );
+          }
+        }
+      }
+    }
+    return { hasObstacle: false };
+  }
 
   if (presetId === 'dam-break') {
     for (let ix = 0; ix < 14; ix++) {
@@ -526,14 +606,6 @@ export function stepSandWaterSimulation(
       const bounce = kindI === 0 ? 0.25 : 0.12;
       const wallFric = kindI === 0 ? 0.99 : Math.max(0.4, 1.0 - config.sandFriction * 0.5);
 
-      if (npx < TANK_BOUNDS.minX + rad) {
-        npx = TANK_BOUNDS.minX + rad;
-        if (nvx < 0) nvx = -nvx * bounce;
-      } else if (npx > TANK_BOUNDS.maxX - rad) {
-        npx = TANK_BOUNDS.maxX - rad;
-        if (nvx > 0) nvx = -nvx * bounce;
-      }
-
       if (npy < TANK_BOUNDS.minY + rad) {
         npy = TANK_BOUNDS.minY + rad;
         if (nvy < 0) nvy = -nvy * bounce;
@@ -544,34 +616,60 @@ export function stepSandWaterSimulation(
         if (nvy > 0) nvy = -nvy * bounce;
       }
 
-      if (npz < TANK_BOUNDS.minZ + rad) {
-        npz = TANK_BOUNDS.minZ + rad;
-        if (nvz < 0) nvz = -nvz * bounce;
-      } else if (npz > TANK_BOUNDS.maxZ - rad) {
-        npz = TANK_BOUNDS.maxZ - rad;
-        if (nvz > 0) nvz = -nvz * bounce;
-      }
+      if (config.isGlassMode) {
+        const t = Math.max(0, Math.min(1, npy / 6.6));
+        const rGlass = 2.05 + (2.75 - 2.05) * t - rad;
+        const radXZ = Math.hypot(npx, npz);
+        if (radXZ > rGlass && radXZ > 1e-6) {
+          const nx = npx / radXZ;
+          const nz = npz / radXZ;
+          npx = nx * rGlass;
+          npz = nz * rGlass;
+          const vr = nvx * nx + nvz * nz;
+          if (vr > 0) {
+            nvx -= (1 + bounce) * vr * nx;
+            nvz -= (1 + bounce) * vr * nz;
+          }
+          nvy *= wallFric;
+        }
+      } else {
+        if (npx < TANK_BOUNDS.minX + rad) {
+          npx = TANK_BOUNDS.minX + rad;
+          if (nvx < 0) nvx = -nvx * bounce;
+        } else if (npx > TANK_BOUNDS.maxX - rad) {
+          npx = TANK_BOUNDS.maxX - rad;
+          if (nvx > 0) nvx = -nvx * bounce;
+        }
 
-      // Optional center barrier obstacle
-      if (config.hasObstacle) {
-        const oMinX = OBSTACLE_BOX.minX - rad;
-        const oMaxX = OBSTACLE_BOX.maxX + rad;
-        const oMaxY = OBSTACLE_BOX.maxY + rad;
-        if (npx > oMinX && npx < oMaxX && npy < oMaxY) {
-          const penLeft = npx - oMinX;
-          const penRight = oMaxX - npx;
-          const penTop = oMaxY - npy;
-          if (penTop <= penLeft && penTop <= penRight) {
-            npy = oMaxY;
-            if (nvy < 0) nvy = -nvy * bounce;
-            nvx *= wallFric;
-            nvz *= wallFric;
-          } else if (penLeft < penRight) {
-            npx = oMinX;
-            if (nvx > 0) nvx = -nvx * bounce;
-          } else {
-            npx = oMaxX;
-            if (nvx < 0) nvx = -nvx * bounce;
+        if (npz < TANK_BOUNDS.minZ + rad) {
+          npz = TANK_BOUNDS.minZ + rad;
+          if (nvz < 0) nvz = -nvz * bounce;
+        } else if (npz > TANK_BOUNDS.maxZ - rad) {
+          npz = TANK_BOUNDS.maxZ - rad;
+          if (nvz > 0) nvz = -nvz * bounce;
+        }
+
+        // Optional center barrier obstacle
+        if (config.hasObstacle) {
+          const oMinX = OBSTACLE_BOX.minX - rad;
+          const oMaxX = OBSTACLE_BOX.maxX + rad;
+          const oMaxY = OBSTACLE_BOX.maxY + rad;
+          if (npx > oMinX && npx < oMaxX && npy < oMaxY) {
+            const penLeft = npx - oMinX;
+            const penRight = oMaxX - npx;
+            const penTop = oMaxY - npy;
+            if (penTop <= penLeft && penTop <= penRight) {
+              npy = oMaxY;
+              if (nvy < 0) nvy = -nvy * bounce;
+              nvx *= wallFric;
+              nvz *= wallFric;
+            } else if (penLeft < penRight) {
+              npx = oMinX;
+              if (nvx > 0) nvx = -nvx * bounce;
+            } else {
+              npx = oMaxX;
+              if (nvx < 0) nvx = -nvx * bounce;
+            }
           }
         }
       }

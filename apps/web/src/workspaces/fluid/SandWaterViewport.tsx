@@ -13,6 +13,7 @@ import {
   computeSandWaterStats,
   createSandWaterState,
   loadSandWaterPreset,
+  spawnMacroParticle,
   stepSandWaterSimulation,
 } from '@matterlab/domain';
 import { useLabStore } from '../../state/useLabStore';
@@ -74,7 +75,8 @@ export const SandWaterViewport: React.FC = () => {
       canvas.width = Math.floor(initW * dpr);
       canvas.height = Math.floor(initH * dpr);
 
-      const gpuEngine = await WebGpuFluidEngine.create(canvas);
+      const { engine: gpuEngine, reason: gpuSkipReason } =
+        await WebGpuFluidEngine.create(canvas);
       if (disposed) {
         gpuEngine?.destroy();
         return;
@@ -317,12 +319,14 @@ export const SandWaterViewport: React.FC = () => {
       }
 
       setBackendMode('webgl2');
-      useLabStore.getState().setFluidBackendLabel('CPU + WebGL2 Fallback (max 6,000)');
+      useLabStore
+        .getState()
+        .setFluidBackendLabel(`CPU + WebGL2 (${gpuSkipReason}; max 6,000)`);
 
       const scene = new THREE.Scene();
       scene.background = new THREE.Color('#090d16');
       const camera = new THREE.PerspectiveCamera(45, initW / initH, 0.1, 200);
-      camera.position.set(0, 5.6, 13.8);
+      camera.position.set(0, 5.2, 12.2);
 
       const renderer = new THREE.WebGLRenderer({
         canvas,
@@ -332,16 +336,26 @@ export const SandWaterViewport: React.FC = () => {
       renderer.setPixelRatio(dpr);
       renderer.setSize(initW, initH);
 
+      const stCpuInit = useLabStore.getState();
       const controls = new OrbitControls(camera, canvas);
       controls.enableDamping = true;
       controls.dampingFactor = 0.08;
-      controls.target.set(0, 2.4, 0);
+      controls.target.set(0, 2.5, 0);
+      controls.mouseButtons = {
+        LEFT: stCpuInit.fluidTool === 'orbit' ? THREE.MOUSE.ROTATE : null,
+        MIDDLE: THREE.MOUSE.DOLLY,
+        RIGHT: THREE.MOUSE.ROTATE,
+      };
       controls.update();
 
       scene.add(new THREE.HemisphereLight('#bae6fd', '#1e293b', 0.9));
       const keyLight = new THREE.DirectionalLight('#ffffff', 1.4);
       keyLight.position.set(6, 12, 8);
       scene.add(keyLight);
+
+      const gridHelper = new THREE.GridHelper(20, 20, '#334155', '#172033');
+      gridHelper.position.y = -0.01;
+      scene.add(gridHelper);
 
       const boxW = TANK_BOUNDS.maxX - TANK_BOUNDS.minX;
       const boxH = TANK_BOUNDS.maxY - TANK_BOUNDS.minY;
@@ -354,6 +368,16 @@ export const SandWaterViewport: React.FC = () => {
       tankLine.position.set(0, boxH / 2, 0);
       scene.add(tankLine);
       tankGeo.dispose();
+
+      // Tapered 3D Glass wireframe for CPU+WebGL2 mode
+      const glassGeo = new THREE.CylinderGeometry(2.75, 2.05, 6.6, 28, 3, true);
+      const glassLine = new THREE.LineSegments(
+        new THREE.EdgesGeometry(glassGeo),
+        new THREE.LineBasicMaterial({ color: '#7dd3fc', transparent: true, opacity: 0.45 }),
+      );
+      glassLine.position.set(0, 3.3, 0);
+      scene.add(glassLine);
+      glassGeo.dispose();
 
       const obstacleMesh = new THREE.Mesh(
         new THREE.BoxGeometry(
@@ -373,21 +397,89 @@ export const SandWaterViewport: React.FC = () => {
       particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       scene.add(particleMesh);
 
-      loadSandWaterPreset(cpuSimRef.current, useLabStore.getState().fluidPresetId);
+      loadSandWaterPreset(
+        cpuSimRef.current,
+        stCpuInit.fluidPresetId,
+        stCpuInit.fluidContainerMode === 'glass',
+      );
+
+      const cpuRaycaster = new THREE.Raycaster();
+      const cpuNdc = new THREE.Vector2();
+      const cpuPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+      const cpuHit = new THREE.Vector3();
+      const cpuCamFwd = new THREE.Vector3();
+      let cpuPointerActive = false;
+      const cpuCurHit = new THREE.Vector3(0, 3.0, 0);
+      const cpuStirVel = new THREE.Vector3(0, 0, 0);
+      let cpuSpawnSeq = 0;
+
+      const updateCpuHit = (ev: PointerEvent): boolean => {
+        const rect = canvas.getBoundingClientRect();
+        cpuNdc.set(
+          ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+          -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+        );
+        camera.getWorldDirection(cpuCamFwd);
+        const norm = new THREE.Vector3(cpuCamFwd.x, 0, cpuCamFwd.z);
+        if (norm.lengthSq() < 0.05) norm.set(0, 0, 1);
+        norm.normalize();
+        cpuPlane.setFromNormalAndCoplanarPoint(norm, new THREE.Vector3(0, 2.4, 0));
+        cpuRaycaster.setFromCamera(cpuNdc, camera);
+        return cpuRaycaster.ray.intersectPlane(cpuPlane, cpuHit) !== null;
+      };
+
+      const onCpuDown = (ev: PointerEvent) => {
+        if (ev.button !== 0) return;
+        if (useLabStore.getState().fluidTool === 'orbit') return;
+        ev.stopImmediatePropagation();
+        if (!updateCpuHit(ev)) return;
+        cpuPointerActive = true;
+        cpuCurHit.copy(cpuHit);
+        cpuStirVel.set(0, 0, 0);
+      };
+
+      const onCpuMove = (ev: PointerEvent) => {
+        if (!cpuPointerActive) return;
+        if (!updateCpuHit(ev)) return;
+        cpuStirVel
+          .subVectors(cpuHit, cpuCurHit)
+          .multiplyScalar(40.0)
+          .clampLength(0, 15.0);
+        cpuCurHit.copy(cpuHit);
+      };
+
+      const onCpuUp = (ev: PointerEvent) => {
+        if (ev.button !== 0 || !cpuPointerActive) return;
+        cpuPointerActive = false;
+        cpuStirVel.set(0, 0, 0);
+      };
+
+      canvas.addEventListener('pointerdown', onCpuDown, { capture: true });
+      window.addEventListener('pointermove', onCpuMove);
+      window.addEventListener('pointerup', onCpuUp);
+
+      const onCpuResize = () => {
+        const w = Math.max(host.clientWidth, 1);
+        const h = Math.max(host.clientHeight, 1);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      };
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(onCpuResize);
+        resizeObserver.observe(host);
+      }
+      window.addEventListener('resize', onCpuResize);
 
       const dummy = new THREE.Object3D();
       const waterColor = new THREE.Color('#38bdf8');
-      const sandColor = new THREE.Color('#eab308');
-      const stirZero: StirImpulse = {
-        active: false,
-        x: 0,
-        y: 0,
-        z: 0,
-        vx: 0,
-        vy: 0,
-        vz: 0,
-        radius: 0.9,
-      };
+      const sandColors = [
+        new THREE.Color('#eab308'),
+        new THREE.Color('#f59e0b'),
+        new THREE.Color('#d97706'),
+        new THREE.Color('#ca8a04'),
+      ];
+      let lastCpuCamReset = stCpuInit.cameraResetNonce;
       let frameTicker = 0;
 
       const cpuLoop = () => {
@@ -395,8 +487,71 @@ export const SandWaterViewport: React.FC = () => {
         rafId = requestAnimationFrame(cpuLoop);
         const st = useLabStore.getState();
         const sim = cpuSimRef.current;
-        stepSandWaterSimulation(sim, st.fluidConfig, 1 / 60, stirZero);
-        obstacleMesh.visible = st.fluidConfig.hasObstacle;
+        const isGlass = st.fluidContainerMode === 'glass';
+
+        if (st.cameraResetNonce !== lastCpuCamReset) {
+          lastCpuCamReset = st.cameraResetNonce;
+          camera.position.set(0, 5.2, 12.2);
+          controls.target.set(0, 2.5, 0);
+        }
+
+        controls.mouseButtons.LEFT =
+          st.fluidTool === 'orbit' ? THREE.MOUSE.ROTATE : null;
+        controls.enableRotate = st.fluidTool === 'orbit' || !cpuPointerActive;
+
+        if (cpuPointerActive && (st.fluidTool === 'pour-water' || st.fluidTool === 'pour-sand')) {
+          const kind = st.fluidTool === 'pour-water' ? 'water' : 'sand';
+          let sx = cpuCurHit.x;
+          let sz = cpuCurHit.z;
+          const sy = Math.max(0.6, Math.min(6.0, cpuCurHit.y));
+          if (isGlass) {
+            const rMax = 2.0;
+            const rCur = Math.hypot(sx, sz);
+            if (rCur > rMax && rCur > 1e-6) {
+              sx = (sx / rCur) * rMax;
+              sz = (sz / rCur) * rMax;
+            }
+          } else {
+            sx = Math.max(-4.1, Math.min(4.1, sx));
+            sz = Math.max(-1.8, Math.min(1.8, sz));
+          }
+          for (let k = 0; k < 6; k++) {
+            cpuSpawnSeq += 1;
+            const jx = Math.sin(cpuSpawnSeq * 3.1) * 0.2;
+            const jz = Math.cos(cpuSpawnSeq * 5.7) * 0.2;
+            spawnMacroParticle(sim, kind, sx + jx, sy + (k % 2) * 0.08, sz + jz, jx * 1.5, -2.0, jz * 1.5);
+          }
+        } else if (!st.fluidConfig.paused && st.fluidAutoPourKind !== 'none') {
+          for (let k = 0; k < 5; k++) {
+            cpuSpawnSeq += 1;
+            const jx = Math.sin(cpuSpawnSeq * 2.9) * 0.18;
+            const jz = Math.cos(cpuSpawnSeq * 4.3) * 0.18;
+            spawnMacroParticle(sim, st.fluidAutoPourKind, jx, 5.6, jz, jx * 1.4, -2.2, jz * 1.4);
+          }
+        }
+
+        const stirImpulse: StirImpulse = {
+          active: cpuPointerActive && st.fluidTool === 'stir',
+          x: cpuCurHit.x,
+          y: cpuCurHit.y,
+          z: cpuCurHit.z,
+          vx: cpuStirVel.x,
+          vy: cpuStirVel.y,
+          vz: cpuStirVel.z,
+          radius: 1.0,
+        };
+        cpuStirVel.multiplyScalar(0.72);
+
+        stepSandWaterSimulation(
+          sim,
+          { ...st.fluidConfig, isGlassMode: isGlass },
+          1 / 60,
+          stirImpulse,
+        );
+        tankLine.visible = !isGlass;
+        glassLine.visible = isGlass;
+        obstacleMesh.visible = !isGlass && st.fluidConfig.hasObstacle;
+
         particleMesh.count = sim.count;
         for (let i = 0; i < sim.count; i++) {
           const isWater = sim.kinds[i] === 0;
@@ -404,7 +559,7 @@ export const SandWaterViewport: React.FC = () => {
           dummy.scale.setScalar(isWater ? WATER_RADIUS * 1.28 : SAND_RADIUS * 1.02);
           dummy.updateMatrix();
           particleMesh.setMatrixAt(i, dummy.matrix);
-          particleMesh.setColorAt(i, isWater ? waterColor : sandColor);
+          particleMesh.setColorAt(i, isWater ? waterColor : sandColors[i & 3]!);
         }
         particleMesh.instanceMatrix.needsUpdate = true;
         if (particleMesh.instanceColor) particleMesh.instanceColor.needsUpdate = true;
@@ -419,6 +574,11 @@ export const SandWaterViewport: React.FC = () => {
       cpuLoop();
 
       cleanupListeners = () => {
+        canvas.removeEventListener('pointerdown', onCpuDown, { capture: true });
+        window.removeEventListener('pointermove', onCpuMove);
+        window.removeEventListener('pointerup', onCpuUp);
+        window.removeEventListener('resize', onCpuResize);
+        resizeObserver?.disconnect();
         controls.dispose();
         sphereGeo.dispose();
         sphereMat.dispose();
@@ -461,7 +621,11 @@ export const SandWaterViewport: React.FC = () => {
         kineticEnergy: 0,
       });
     } else if (backendMode === 'webgl2') {
-      loadSandWaterPreset(cpuSimRef.current, fluidPresetId);
+      loadSandWaterPreset(
+        cpuSimRef.current,
+        fluidPresetId,
+        fluidContainerMode === 'glass',
+      );
       useLabStore.getState().setFluidStats(computeSandWaterStats(cpuSimRef.current));
     }
   }, [fluidPresetId, fluidContainerMode, fluidTargetParticleCount, fluidResetNonce, backendMode]);
