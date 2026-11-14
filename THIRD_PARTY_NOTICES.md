@@ -28,3 +28,9 @@ This project uses open-source libraries and curated scientific reference dataset
 - **Covalent Radii**: Cordero, B. et al., *Dalton Trans.*, 2008, 2832–2838.
 - **Van der Waals Radii**: Bondi, A., *J. Phys. Chem.* 1964, 68, 441; Mantina, M. et al., *J. Phys. Chem. A* 2009, 113, 5806.
 - **Element Coloring**: Jmol / CPK color conventions and Okabe-Ito-inspired colorblind-safe palette.
+
+## Curated Nuclear & Atomic Wave Reference Data (`packages/domain/src/nuclear.ts`, `atomWave.ts`)
+
+- **Nuclear Masses & Binding Energies**: AME2020 Atomic Mass Evaluation / NNDC NuDat 3.0 (⁴He, ⁸Be, ¹²C ground & Hoyle state, ¹⁶O, and p + ¹¹B reaction Q-value).
+- **Fundamental Physical Constants**: CODATA recommended values (Coulomb constant αħc, Bohr radius a₀, proton/neutron/alpha masses, gravitational constant G).
+
