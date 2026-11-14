@@ -1,14 +1,28 @@
-export type MacroParticleKind = 'water' | 'sand';
+export type MacroParticleKind = 'water' | 'sand' | 'oil' | 'ferro';
 
 export type SandWaterPresetId =
+  | 'cascade-maze'
+  | 'density-tower'
+  | 'plinko-funnel'
   | 'sand-into-water'
   | 'dam-break'
   | 'sand-pile'
   | 'obstacle-splash';
 
+export interface ObstacleBox3D {
+  cx: number;
+  cy: number;
+  cz: number;
+  hx: number;
+  hy: number;
+  hz: number;
+  angleZ: number;
+}
+
 export interface SandWaterConfig {
   gravityY: number;
   gravityX: number;
+  gravityZ?: number;
   viscosity: number;
   sandFriction: number;
   stiffness: number;
@@ -20,6 +34,7 @@ export interface SandWaterConfig {
 export const DEFAULT_SAND_WATER_CONFIG: SandWaterConfig = {
   gravityY: -18.0,
   gravityX: 0.0,
+  gravityZ: 0.0,
   viscosity: 0.35,
   sandFriction: 0.55,
   stiffness: 1.0,
@@ -49,6 +64,91 @@ export const OBSTACLE_BOX = {
 export const MAX_MACRO_PARTICLES = 6000;
 export const WATER_RADIUS = 0.08;
 export const SAND_RADIUS = 0.072;
+export const OIL_RADIUS = 0.082;
+export const FERRO_RADIUS = 0.072;
+
+export function getObstaclesForPreset(
+  presetId: SandWaterPresetId,
+  hasBarrier: boolean,
+  isGlassMode: boolean,
+): ObstacleBox3D[] {
+  if (isGlassMode) return [];
+
+  if (presetId === 'cascade-maze') {
+    return [
+      { cx: -1.75, cy: 5.15, cz: 0, hx: 2.35, hy: 0.13, hz: 2.05, angleZ: -0.22 },
+      { cx: 1.75, cy: 3.95, cz: 0, hx: 2.35, hy: 0.13, hz: 2.05, angleZ: 0.22 },
+      { cx: -1.55, cy: 2.7, cz: 0, hx: 2.3, hy: 0.13, hz: 2.05, angleZ: -0.2 },
+      { cx: 1.65, cy: 1.5, cz: 0, hx: 2.2, hy: 0.13, hz: 2.05, angleZ: 0.2 },
+      { cx: -0.8, cy: 0.55, cz: 0, hx: 0.22, hy: 0.55, hz: 2.05, angleZ: 0 },
+      { cx: 0.9, cy: 0.45, cz: 0, hx: 0.18, hy: 0.45, hz: 2.05, angleZ: 0 },
+    ];
+  }
+
+  if (presetId === 'plinko-funnel') {
+    const pegs: ObstacleBox3D[] = [
+      { cx: -1.85, cy: 5.35, cz: 0, hx: 1.6, hy: 0.13, hz: 2.05, angleZ: -0.42 },
+      { cx: 1.85, cy: 5.35, cz: 0, hx: 1.6, hy: 0.13, hz: 2.05, angleZ: 0.42 },
+    ];
+    for (const x of [-1.7, 0, 1.7]) {
+      pegs.push({ cx: x, cy: 3.85, cz: 0, hx: 0.22, hy: 0.22, hz: 2.05, angleZ: 0.7854 });
+    }
+    for (const x of [-2.55, -0.85, 0.85, 2.55]) {
+      pegs.push({ cx: x, cy: 2.75, cz: 0, hx: 0.22, hy: 0.22, hz: 2.05, angleZ: 0.7854 });
+    }
+    for (const x of [-1.7, 0, 1.7]) {
+      pegs.push({ cx: x, cy: 1.65, cz: 0, hx: 0.22, hy: 0.22, hz: 2.05, angleZ: 0.7854 });
+    }
+    for (const x of [-1.8, 0, 1.8]) {
+      pegs.push({ cx: x, cy: 0.48, cz: 0, hx: 0.11, hy: 0.48, hz: 2.05, angleZ: 0 });
+    }
+    return pegs;
+  }
+
+  if (hasBarrier) {
+    return [{ cx: 0, cy: 1.25, cz: 0, hx: 0.35, hy: 1.25, hz: 2.05, angleZ: 0 }];
+  }
+  return [];
+}
+
+function kindToCode(kind: MacroParticleKind): number {
+  switch (kind) {
+    case 'water':
+      return 0;
+    case 'sand':
+      return 1;
+    case 'oil':
+      return 2;
+    case 'ferro':
+      return 3;
+  }
+}
+
+function particleMassFromCode(code: number): number {
+  switch (code) {
+    case 0:
+      return 1.0;
+    case 1:
+      return 2.4;
+    case 2:
+      return 0.72;
+    default:
+      return 3.2;
+  }
+}
+
+function particleRadiusFromCode(code: number): number {
+  switch (code) {
+    case 0:
+      return WATER_RADIUS;
+    case 1:
+      return SAND_RADIUS;
+    case 2:
+      return OIL_RADIUS;
+    default:
+      return FERRO_RADIUS;
+  }
+}
 const SMOOTHING_H = 0.28;
 const CELL_SIZE = SMOOTHING_H;
 
@@ -110,7 +210,7 @@ export function spawnMacroParticle(
 ): boolean {
   if (state.count >= MAX_MACRO_PARTICLES) return false;
   const idx = state.count;
-  state.kinds[idx] = kind === 'water' ? 0 : 1;
+  state.kinds[idx] = kindToCode(kind);
   state.px[idx] = Math.max(TANK_BOUNDS.minX + 0.12, Math.min(TANK_BOUNDS.maxX - 0.12, x));
   state.py[idx] = Math.max(TANK_BOUNDS.minY + 0.12, Math.min(TANK_BOUNDS.maxY - 0.12, y));
   state.pz[idx] = Math.max(TANK_BOUNDS.minZ + 0.12, Math.min(TANK_BOUNDS.maxZ - 0.12, z));
@@ -136,6 +236,34 @@ export function loadSandWaterPreset(
   let seq = 1;
 
   if (isGlassMode) {
+    if (presetId === 'density-tower') {
+      // 4-layer density column inside 3D Glass: Ferro (bottom), Sand, Water, Oil (top)
+      const layers: Array<{ kind: MacroParticleKind; y0: number; yCount: number; rMax: number }> = [
+        { kind: 'ferro', y0: 0.15, yCount: 4, rMax: 1.5 },
+        { kind: 'sand', y0: 0.9, yCount: 5, rMax: 1.55 },
+        { kind: 'water', y0: 1.9, yCount: 7, rMax: 1.65 },
+        { kind: 'oil', y0: 3.3, yCount: 6, rMax: 1.75 },
+      ];
+      for (const layer of layers) {
+        for (let iy = 0; iy < layer.yCount; iy++) {
+          for (let x = -layer.rMax; x <= layer.rMax; x += 0.22) {
+            for (let z = -layer.rMax; z <= layer.rMax; z += 0.22) {
+              if (x * x + z * z <= layer.rMax * layer.rMax) {
+                seq += 1;
+                spawnMacroParticle(
+                  state,
+                  layer.kind,
+                  x + deterministicJitter(seq) * 0.02,
+                  layer.y0 + iy * 0.19,
+                  z + deterministicJitter(seq + 3) * 0.02,
+                );
+              }
+            }
+          }
+        }
+      }
+      return { hasObstacle: false };
+    }
     if (presetId === 'sand-pile') {
       for (let iy = 0; iy < 16; iy++) {
         for (let x = -1.4; x <= 1.4; x += 0.17) {
@@ -204,6 +332,88 @@ export function loadSandWaterPreset(
               x + deterministicJitter(seq) * 0.02,
               2.8 + iy * 0.18,
               z + deterministicJitter(seq + 11) * 0.02,
+            );
+          }
+        }
+      }
+    }
+    return { hasObstacle: false };
+  }
+
+  if (presetId === 'cascade-maze') {
+    for (let ix = 0; ix < 12; ix++) {
+      for (let iy = 0; iy < 6; iy++) {
+        for (let iz = 0; iz < 8; iz++) {
+          seq += 1;
+          spawnMacroParticle(
+            state,
+            'water',
+            -3.8 + ix * 0.18 + deterministicJitter(seq) * 0.02,
+            5.65 + iy * 0.17,
+            -0.8 + iz * 0.22,
+            1.4,
+            0,
+            0,
+          );
+        }
+      }
+    }
+    for (let ix = 0; ix < 7; ix++) {
+      for (let iy = 0; iy < 4; iy++) {
+        for (let iz = 0; iz < 6; iz++) {
+          seq += 1;
+          spawnMacroParticle(
+            state,
+            'oil',
+            -3.6 + ix * 0.19 + deterministicJitter(seq) * 0.02,
+            5.8 + iy * 0.17,
+            -0.6 + iz * 0.22,
+            1.2,
+            0,
+            0,
+          );
+        }
+      }
+    }
+    return { hasObstacle: true };
+  }
+
+  if (presetId === 'plinko-funnel') {
+    for (let ix = 0; ix < 12; ix++) {
+      for (let iy = 0; iy < 6; iy++) {
+        for (let iz = 0; iz < 8; iz++) {
+          seq += 1;
+          spawnMacroParticle(
+            state,
+            ix % 3 === 0 ? 'sand' : 'water',
+            -1.1 + ix * 0.19 + deterministicJitter(seq) * 0.02,
+            5.65 + iy * 0.17,
+            -0.8 + iz * 0.22,
+          );
+        }
+      }
+    }
+    return { hasObstacle: true };
+  }
+
+  if (presetId === 'density-tower') {
+    const bands: Array<{ kind: MacroParticleKind; yStart: number; yRows: number }> = [
+      { kind: 'ferro', yStart: 0.15, yRows: 3 },
+      { kind: 'sand', yStart: 0.75, yRows: 4 },
+      { kind: 'water', yStart: 1.6, yRows: 6 },
+      { kind: 'oil', yStart: 2.9, yRows: 5 },
+    ];
+    for (const band of bands) {
+      for (let ix = 0; ix < 18; ix++) {
+        for (let iy = 0; iy < band.yRows; iy++) {
+          for (let iz = 0; iz < 8; iz++) {
+            seq += 1;
+            spawnMacroParticle(
+              state,
+              band.kind,
+              -3.2 + ix * 0.36 + deterministicJitter(seq) * 0.03,
+              band.yStart + iy * 0.19,
+              -0.85 + iz * 0.24,
             );
           }
         }
@@ -333,6 +543,7 @@ function coordToCellZ(z: number): number {
 
 export interface StirImpulse {
   active: boolean;
+  mode?: 'stir' | 'magnet';
   x: number;
   y: number;
   z: number;
@@ -347,6 +558,7 @@ export function stepSandWaterSimulation(
   config: SandWaterConfig,
   dt = 1 / 60,
   stir?: StirImpulse,
+  obstacles: ObstacleBox3D[] = [],
 ): void {
   const n = state.count;
   if (n === 0 || config.paused) return;
@@ -393,9 +605,10 @@ export function stepSandWaterSimulation(
       cellHead[cIdx] = i;
     }
 
-    // 2. Water density & pressure pass
+    // 2. Fluid (water & oil) density & pressure pass
     for (let i = 0; i < n; i++) {
-      if (kinds[i] !== 0) {
+      const k = kinds[i]!;
+      if (k === 1 || k === 3) {
         density[i] = restDensity;
         pressure[i] = 0;
         continue;
@@ -419,7 +632,7 @@ export function stepSandWaterSimulation(
               const r2 = dx * dx + dy * dy + dz * dz;
               if (r2 < h2) {
                 const diff = h2 - r2;
-                const massJ = kinds[j] === 0 ? 1.0 : 0.7;
+                const massJ = particleMassFromCode(kinds[j]!);
                 rho += massJ * poly6Coeff * diff * diff * diff;
               }
               j = cellNext[j]!;
@@ -428,15 +641,15 @@ export function stepSandWaterSimulation(
         }
       }
       density[i] = Math.max(restDensity * 0.35, rho);
-      pressure[i] = gasK * Math.max(0, density[i]! - restDensity);
+      pressure[i] = gasK * Math.max(0, density[i]! - restDensity * (k === 2 ? 0.72 : 1.0));
     }
 
     // 3. Accumulate pairwise forces
     for (let i = 0; i < n; i++) {
-      const massI = kinds[i] === 0 ? 1.0 : 2.4;
+      const massI = particleMassFromCode(kinds[i]!);
       fx[i] = config.gravityX * massI;
       fy[i] = config.gravityY * massI;
-      fz[i] = 0;
+      fz[i] = (config.gravityZ ?? 0) * massI;
     }
 
     for (let i = 0; i < n; i++) {
@@ -447,7 +660,8 @@ export function stepSandWaterSimulation(
       const vyi = vy[i]!;
       const vzi = vz[i]!;
       const kindI = kinds[i]!;
-      const radI = kindI === 0 ? WATER_RADIUS : SAND_RADIUS;
+      const isFluidI = kindI === 0 || kindI === 2;
+      const radI = particleRadiusFromCode(kindI);
 
       const cx0 = coordToCellX(xi);
       const cy0 = coordToCellY(yi);
@@ -464,7 +678,8 @@ export function stepSandWaterSimulation(
                 const dz = zi - pz[j]!;
                 const r2 = dx * dx + dy * dy + dz * dz;
                 const kindJ = kinds[j]!;
-                const radJ = kindJ === 0 ? WATER_RADIUS : SAND_RADIUS;
+                const isFluidJ = kindJ === 0 || kindJ === 2;
+                const radJ = particleRadiusFromCode(kindJ);
                 const minDist = radI + radJ;
 
                 if (r2 < h2 && r2 > 1e-10) {
@@ -473,18 +688,19 @@ export function stepSandWaterSimulation(
                   const ny = dy / r;
                   const nz = dz / r;
 
-                  if (kindI === 0 && kindJ === 0) {
-                    // Water-Water SPH pressure + viscosity
+                  if (isFluidI && isFluidJ) {
                     const hMinusR = SMOOTHING_H - r;
                     const pAvg = 0.5 * (pressure[i]! + pressure[j]!);
                     const fPress =
                       (-spikyGradCoeff * pAvg * hMinusR * hMinusR) / density[j]!;
                     const lapW = viscLapCoeff * hMinusR;
-                    const fViscScale = (viscMu * lapW) / density[j]!;
+                    const viscBoost = kindI === 2 || kindJ === 2 ? 1.5 : 1.0;
+                    const fViscScale = (viscMu * viscBoost * lapW) / density[j]!;
+                    const immiscible = kindI !== kindJ ? 18.0 * (SMOOTHING_H - r) : 0;
 
-                    const totalFx = fPress * nx + fViscScale * (vx[j]! - vxi);
-                    const totalFy = fPress * ny + fViscScale * (vy[j]! - vyi);
-                    const totalFz = fPress * nz + fViscScale * (vz[j]! - vzi);
+                    const totalFx = (fPress + immiscible) * nx + fViscScale * (vx[j]! - vxi);
+                    const totalFy = (fPress + immiscible) * ny + fViscScale * (vy[j]! - vyi);
+                    const totalFz = (fPress + immiscible) * nz + fViscScale * (vz[j]! - vzi);
 
                     fx[i]! += totalFx;
                     fy[i]! += totalFy;
@@ -493,7 +709,6 @@ export function stepSandWaterSimulation(
                     fy[j]! -= totalFy;
                     fz[j]! -= totalFz;
 
-                    // Short-range soft core to keep water droplets well-spaced
                     if (r < minDist * 0.85) {
                       const pen = minDist * 0.85 - r;
                       const rep = 85.0 * pen;
@@ -504,8 +719,7 @@ export function stepSandWaterSimulation(
                       fy[j]! -= rep * ny;
                       fz[j]! -= rep * nz;
                     }
-                  } else if (kindI === 1 && kindJ === 1) {
-                    // Sand-Sand DEM granular contact + Coulomb friction
+                  } else if (!isFluidI && !isFluidJ) {
                     if (r < minDist) {
                       const overlap = minDist - r;
                       const rvx = vxi - vx[j]!;
@@ -534,7 +748,6 @@ export function stepSandWaterSimulation(
                       fz[j]! -= totalFz;
                     }
                   } else {
-                    // Sand-Water coupling: contact repulsion + fluid drag + buoyant pressure
                     if (r < minDist * 1.15) {
                       const overlap = Math.max(0, minDist - r);
                       const rvx = vxi - vx[j]!;
@@ -564,15 +777,23 @@ export function stepSandWaterSimulation(
         }
       }
 
-      // Optional interactive stir impulse
+      // Optional interactive stir or magnet impulse
       if (stir && stir.active) {
         const sdx = xi - stir.x;
         const sdy = yi - stir.y;
         const sdz = zi - stir.z;
         const sd2 = sdx * sdx + sdy * sdy + sdz * sdz;
-        if (sd2 < stir.radius * stir.radius) {
+        if (stir.mode === 'magnet' && kindI === 3) {
+          const dist = Math.max(0.2, Math.sqrt(sd2));
+          if (dist < stir.radius * 3.5) {
+            const pull = 120.0 / (0.15 + sd2);
+            fx[i]! -= (sdx / dist) * pull;
+            fy[i]! -= (sdy / dist) * pull;
+            fz[i]! -= (sdz / dist) * pull;
+          }
+        } else if (stir.mode !== 'magnet' && sd2 < stir.radius * stir.radius) {
           const w = 1.0 - Math.sqrt(sd2) / stir.radius;
-          const massI = kindI === 0 ? 1.0 : 2.4;
+          const massI = particleMassFromCode(kindI);
           fx[i]! += (stir.vx - vxi) * 28.0 * w * massI;
           fy[i]! += (stir.vy - vyi) * 28.0 * w * massI;
           fz[i]! += (stir.vz - vzi) * 28.0 * w * massI;
@@ -583,8 +804,8 @@ export function stepSandWaterSimulation(
     // 4. Integrate & resolve tank/obstacle boundaries
     for (let i = 0; i < n; i++) {
       const kindI = kinds[i]!;
-      const rad = kindI === 0 ? WATER_RADIUS : SAND_RADIUS;
-      const invMass = kindI === 0 ? 1.0 : 1.0 / 2.4;
+      const rad = particleRadiusFromCode(kindI);
+      const invMass = 1.0 / particleMassFromCode(kindI);
 
       let nvx = vx[i]! + fx[i]! * invMass * subDt;
       let nvy = vy[i]! + fy[i]! * invMass * subDt;
@@ -649,27 +870,51 @@ export function stepSandWaterSimulation(
           if (nvz > 0) nvz = -nvz * bounce;
         }
 
-        // Optional center barrier obstacle
-        if (config.hasObstacle) {
-          const oMinX = OBSTACLE_BOX.minX - rad;
-          const oMaxX = OBSTACLE_BOX.maxX + rad;
-          const oMaxY = OBSTACLE_BOX.maxY + rad;
-          if (npx > oMinX && npx < oMaxX && npy < oMaxY) {
-            const penLeft = npx - oMinX;
-            const penRight = oMaxX - npx;
-            const penTop = oMaxY - npy;
-            if (penTop <= penLeft && penTop <= penRight) {
-              npy = oMaxY;
-              if (nvy < 0) nvy = -nvy * bounce;
-              nvx *= wallFric;
+        // Optional tilted 3D maze/funnel/barrier obstacles
+        const activeObstacles =
+          obstacles.length > 0
+            ? obstacles
+            : config.hasObstacle
+              ? [{ cx: 0, cy: 1.25, cz: 0, hx: 0.35, hy: 1.25, hz: 2.05, angleZ: 0 }]
+              : [];
+        for (let oi = 0; oi < activeObstacles.length; oi++) {
+          const ob = activeObstacles[oi]!;
+          const cosA = Math.cos(ob.angleZ);
+          const sinA = Math.sin(ob.angleZ);
+          const dx = npx - ob.cx;
+          const dy = npy - ob.cy;
+          const lx = dx * cosA + dy * sinA;
+          const ly = -dx * sinA + dy * cosA;
+          const lz = npz - ob.cz;
+          const ex = ob.hx + rad;
+          const ey = ob.hy + rad;
+          const ez = ob.hz + rad;
+          if (Math.abs(lx) < ex && Math.abs(ly) < ey && Math.abs(lz) < ez) {
+            const pxPen = ex - Math.abs(lx);
+            const pyPen = ey - Math.abs(ly);
+            const pzPen = ez - Math.abs(lz);
+            const lvx = nvx * cosA + nvy * sinA;
+            const lvy = -nvx * sinA + nvy * cosA;
+            let nlx = lx;
+            let nly = ly;
+            let nlvx = lvx;
+            let nlvy = lvy;
+            if (pyPen <= pxPen && pyPen <= pzPen) {
+              nly = ly >= 0 ? ey : -ey;
+              if ((ly >= 0 && lvy < 0) || (ly < 0 && lvy > 0)) nlvy = -lvy * bounce;
+              nlvx *= wallFric;
               nvz *= wallFric;
-            } else if (penLeft < penRight) {
-              npx = oMinX;
-              if (nvx > 0) nvx = -nvx * bounce;
+            } else if (pxPen <= pzPen) {
+              nlx = lx >= 0 ? ex : -ex;
+              if ((lx >= 0 && lvx < 0) || (lx < 0 && lvx > 0)) nlvx = -lvx * bounce;
             } else {
-              npx = oMaxX;
-              if (nvx < 0) nvx = -nvx * bounce;
+              npz = ob.cz + (lz >= 0 ? ez : -ez);
+              if ((lz >= 0 && nvz < 0) || (lz < 0 && nvz > 0)) nvz = -nvz * bounce;
             }
+            npx = ob.cx + nlx * cosA - nly * sinA;
+            npy = ob.cy + nlx * sinA + nly * cosA;
+            nvx = nlvx * cosA - nlvy * sinA;
+            nvy = nlvx * sinA + nlvy * cosA;
           }
         }
       }
@@ -697,12 +942,16 @@ export function applyShakeImpulse(state: SandWaterSimulationState): void {
 export function computeSandWaterStats(state: SandWaterSimulationState): {
   waterCount: number;
   sandCount: number;
+  oilCount: number;
+  ferroCount: number;
   avgSandY: number;
   avgWaterY: number;
   kineticEnergy: number;
 } {
   let waterCount = 0;
   let sandCount = 0;
+  let oilCount = 0;
+  let ferroCount = 0;
   let sumSandY = 0;
   let sumWaterY = 0;
   let ke = 0;
@@ -712,20 +961,29 @@ export function computeSandWaterStats(state: SandWaterSimulationState): {
       state.vx[i]! * state.vx[i]! +
       state.vy[i]! * state.vy[i]! +
       state.vz[i]! * state.vz[i]!;
-    if (state.kinds[i] === 0) {
+    const k = state.kinds[i]!;
+    if (k === 0) {
       waterCount += 1;
       sumWaterY += state.py[i]!;
       ke += 0.5 * 1.0 * v2;
-    } else {
+    } else if (k === 1) {
       sandCount += 1;
       sumSandY += state.py[i]!;
       ke += 0.5 * 2.4 * v2;
+    } else if (k === 2) {
+      oilCount += 1;
+      ke += 0.5 * 0.72 * v2;
+    } else {
+      ferroCount += 1;
+      ke += 0.5 * 3.2 * v2;
     }
   }
 
   return {
     waterCount,
     sandCount,
+    oilCount,
+    ferroCount,
     avgSandY: sandCount > 0 ? sumSandY / sandCount : 0,
     avgWaterY: waterCount > 0 ? sumWaterY / waterCount : 0,
     kineticEnergy: ke,

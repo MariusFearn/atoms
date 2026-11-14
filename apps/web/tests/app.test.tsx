@@ -764,9 +764,24 @@ describe('MatterLab Web Application', () => {
     expect(screen.getAllByText(/Macroscopic Scale \(DEM \+ SPH\)/i).length).toBeGreaterThanOrEqual(1);
 
     fireEvent.change(screen.getByLabelText('Sand and water preset'), {
-      target: { value: 'dam-break' },
+      target: { value: 'cascade-maze' },
     });
-    expect(useLabStore.getState().fluidPresetId).toBe('dam-break');
+    expect(useLabStore.getState().fluidPresetId).toBe('cascade-maze');
+    expect(useLabStore.getState().fluidContainerMode).toBe('tank');
+
+    fireEvent.change(screen.getByLabelText('Sand and water preset'), {
+      target: { value: 'density-tower' },
+    });
+    expect(useLabStore.getState().fluidPresetId).toBe('density-tower');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Pour Oil$/i }));
+    expect(useLabStore.getState().fluidTool).toBe('pour-oil');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Pour Ferro$/i }));
+    expect(useLabStore.getState().fluidTool).toBe('pour-ferro');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Magnet$/i }));
+    expect(useLabStore.getState().fluidTool).toBe('magnet');
 
     fireEvent.click(screen.getByRole('button', { name: /Stir \/ Push/i }));
     expect(useLabStore.getState().fluidTool).toBe('stir');
@@ -774,8 +789,10 @@ describe('MatterLab Web Application', () => {
     fireEvent.click(screen.getByRole('button', { name: /Zero-G Float/i }));
     expect(useLabStore.getState().fluidConfig.gravityY).toBe(0);
 
-    fireEvent.click(screen.getByRole('button', { name: /^Lab Tank$/i }));
-    expect(useLabStore.getState().fluidContainerMode).toBe('tank');
+    fireEvent.change(screen.getByLabelText('Depth tilt gravity'), {
+      target: { value: '4.5' },
+    });
+    expect(useLabStore.getState().fluidConfig.gravityZ).toBe(4.5);
 
     fireEvent.change(screen.getByLabelText('GPU preset particle count'), {
       target: { value: '40000' },

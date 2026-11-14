@@ -5,6 +5,7 @@ import {
   applyShakeImpulse,
   computeSandWaterStats,
   createSandWaterState,
+  getObstaclesForPreset,
   loadSandWaterPreset,
   stepSandWaterSimulation,
 } from '../src/granularFluid.js';
@@ -47,5 +48,23 @@ describe('Sand & Water SPH+DEM Macroscopic Sandbox', () => {
     applyShakeImpulse(state);
     const stats = computeSandWaterStats(state);
     expect(stats.kineticEnergy).toBeGreaterThan(10);
+  });
+
+  it('supports 4-material density tower and 3D cascade maze obstacles', () => {
+    const state = createSandWaterState();
+    loadSandWaterPreset(state, 'density-tower', false);
+    const towerStats = computeSandWaterStats(state);
+    expect(towerStats.waterCount).toBeGreaterThan(0);
+    expect(towerStats.sandCount).toBeGreaterThan(0);
+    expect(towerStats.oilCount).toBeGreaterThan(0);
+    expect(towerStats.ferroCount).toBeGreaterThan(0);
+
+    const mazeObs = getObstaclesForPreset('cascade-maze', true, false);
+    expect(mazeObs.length).toBeGreaterThanOrEqual(5);
+    loadSandWaterPreset(state, 'cascade-maze', false);
+    for (let s = 0; s < 20; s++) {
+      stepSandWaterSimulation(state, DEFAULT_SAND_WATER_CONFIG, 1 / 60, undefined, mazeObs);
+    }
+    expect(Number.isFinite(computeSandWaterStats(state).kineticEnergy)).toBe(true);
   });
 });

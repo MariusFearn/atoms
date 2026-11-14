@@ -66,12 +66,21 @@ import {
 export type EditorTool = 'select' | 'place-atom' | 'bond';
 export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum' | 'nuclear' | 'fluid';
 export type QuantumFieldOverlayMode = 'none' | 'homo-amplitude-phase' | 'electron-density';
-export type SandWaterTool = 'stir' | 'pour-water' | 'pour-sand' | 'orbit';
+export type SandWaterTool =
+  | 'stir'
+  | 'magnet'
+  | 'pour-water'
+  | 'pour-sand'
+  | 'pour-oil'
+  | 'pour-ferro'
+  | 'orbit';
 export type SandWaterContainerMode = 'glass' | 'tank';
 
 export interface SandWaterStatsSnapshot {
   waterCount: number;
   sandCount: number;
+  oilCount: number;
+  ferroCount: number;
   avgSandY: number;
   avgWaterY: number;
   kineticEnergy: number;
@@ -176,7 +185,7 @@ export interface LabState {
   fluidResetNonce: number;
   fluidClearNonce: number;
   fluidShakeNonce: number;
-  fluidAutoPourKind: 'none' | 'water' | 'sand';
+  fluidAutoPourKind: 'none' | 'water' | 'sand' | 'oil' | 'ferro';
 
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setProjectName: (name: string) => void;
@@ -295,7 +304,7 @@ export interface LabState {
   setFluidContainerMode: (mode: SandWaterContainerMode) => void;
   setFluidTargetParticleCount: (count: number) => void;
   setFluidBackendLabel: (label: string) => void;
-  setFluidAutoPourKind: (kind: 'none' | 'water' | 'sand') => void;
+  setFluidAutoPourKind: (kind: 'none' | 'water' | 'sand' | 'oil' | 'ferro') => void;
   updateFluidConfig: (patch: Partial<SandWaterConfig>) => void;
   setFluidStats: (stats: SandWaterStatsSnapshot) => void;
   triggerFluidReset: () => void;
@@ -517,6 +526,8 @@ export const useLabStore = create<LabState>((set, get) => ({
   fluidStats: {
     waterCount: 0,
     sandCount: 0,
+    oilCount: 0,
+    ferroCount: 0,
     avgSandY: 0,
     avgWaterY: 0,
     kineticEnergy: 0,
@@ -1896,7 +1907,11 @@ export const useLabStore = create<LabState>((set, get) => ({
     set((s) => ({
       fluidPresetId,
       fluidContainerMode:
-        fluidPresetId === 'obstacle-splash' ? 'tank' : s.fluidContainerMode,
+        fluidPresetId === 'cascade-maze' ||
+        fluidPresetId === 'plinko-funnel' ||
+        fluidPresetId === 'obstacle-splash'
+          ? 'tank'
+          : s.fluidContainerMode,
       fluidConfig: {
         ...s.fluidConfig,
         hasObstacle: fluidPresetId === 'obstacle-splash',

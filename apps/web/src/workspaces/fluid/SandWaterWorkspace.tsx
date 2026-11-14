@@ -2,13 +2,16 @@ import React from 'react';
 import {
   AlertTriangle,
   Droplets,
+  Flame,
   Hand,
+  Magnet,
   Orbit,
   Pause,
   Play,
   RotateCcw,
   Sparkles,
   Trash2,
+  Zap,
 } from 'lucide-react';
 import { type SandWaterPresetId } from '@matterlab/domain';
 import {
@@ -20,6 +23,21 @@ import { SandWaterViewport } from './SandWaterViewport';
 import { MAX_GPU_PARTICLES } from './webgpuFluidEngine';
 
 const PRESET_OPTIONS: Array<{ id: SandWaterPresetId; label: string; desc: string }> = [
+  {
+    id: 'cascade-maze',
+    label: '3D Cascade Maze (Water + Oil)',
+    desc: 'Water and immiscible light oil cascade down 4 alternating zig-zag ramps into catch basins.',
+  },
+  {
+    id: 'density-tower',
+    label: '4-Layer Density Tower',
+    desc: 'Oil (0.72), Water (1.0), Sand (2.4), and Ferrofluid (3.2) stratify by density; use the Magnet!',
+  },
+  {
+    id: 'plinko-funnel',
+    label: '3D Plinko & Funnel',
+    desc: 'A steep funnel feeds mixed fluid and sand grains through staggered diamond pegs into bins.',
+  },
   {
     id: 'sand-into-water',
     label: 'Sand into Water Pool',
@@ -66,13 +84,30 @@ export const SandWaterWorkspace: React.FC = () => {
   const activePreset =
     PRESET_OPTIONS.find((p) => p.id === fluidPresetId) ?? PRESET_OPTIONS[0]!;
 
-  const totalCount = fluidStats.waterCount + fluidStats.sandCount;
+  const totalCount =
+    fluidStats.waterCount +
+    fluidStats.sandCount +
+    fluidStats.oilCount +
+    fluidStats.ferroCount;
 
-  const tools: Array<{ id: SandWaterTool; label: string; icon: React.ReactNode }> = [
+  const tools: Array<{
+    id: SandWaterTool;
+    label: string;
+    icon: React.ReactNode;
+    fullSpan?: boolean;
+  }> = [
     { id: 'pour-water', label: 'Pour Water', icon: <Droplets size={14} aria-hidden="true" /> },
+    { id: 'pour-oil', label: 'Pour Oil', icon: <Flame size={14} aria-hidden="true" /> },
     { id: 'pour-sand', label: 'Pour Sand', icon: <Sparkles size={14} aria-hidden="true" /> },
+    { id: 'pour-ferro', label: 'Pour Ferro', icon: <Zap size={14} aria-hidden="true" /> },
     { id: 'stir', label: 'Stir / Push', icon: <Hand size={14} aria-hidden="true" /> },
-    { id: 'orbit', label: 'Orbit Cam', icon: <Orbit size={14} aria-hidden="true" /> },
+    { id: 'magnet', label: 'Magnet', icon: <Magnet size={14} aria-hidden="true" /> },
+    {
+      id: 'orbit',
+      label: 'Orbit Cam',
+      icon: <Orbit size={14} aria-hidden="true" />,
+      fullSpan: true,
+    },
   ];
 
   return (
@@ -154,6 +189,7 @@ export const SandWaterWorkspace: React.FC = () => {
                 key={t.id}
                 type="button"
                 className={`tool-btn ${fluidTool === t.id ? 'is-active' : ''}`}
+                style={t.fullSpan ? { gridColumn: '1 / -1' } : undefined}
                 aria-pressed={fluidTool === t.id}
                 onClick={() => setFluidTool(t.id)}
               >
@@ -189,8 +225,19 @@ export const SandWaterWorkspace: React.FC = () => {
                 setFluidAutoPourKind(fluidAutoPourKind === 'water' ? 'none' : 'water')
               }
             >
-              {fluidAutoPourKind === 'water' ? 'Stop Faucet (Water)' : 'Auto Faucet: Water'}
+              {fluidAutoPourKind === 'water' ? 'Stop (Water)' : 'Auto: Water'}
             </button>
+            <button
+              type="button"
+              className={`btn btn-secondary btn-xs ${fluidAutoPourKind === 'oil' ? 'btn-primary' : ''}`}
+              onClick={() =>
+                setFluidAutoPourKind(fluidAutoPourKind === 'oil' ? 'none' : 'oil')
+              }
+            >
+              {fluidAutoPourKind === 'oil' ? 'Stop (Oil)' : 'Auto: Oil'}
+            </button>
+          </div>
+          <div className="exp-action-row" style={{ marginTop: 4 }}>
             <button
               type="button"
               className={`btn btn-secondary btn-xs ${fluidAutoPourKind === 'sand' ? 'btn-primary' : ''}`}
@@ -198,7 +245,16 @@ export const SandWaterWorkspace: React.FC = () => {
                 setFluidAutoPourKind(fluidAutoPourKind === 'sand' ? 'none' : 'sand')
               }
             >
-              {fluidAutoPourKind === 'sand' ? 'Stop Faucet (Sand)' : 'Auto Faucet: Sand'}
+              {fluidAutoPourKind === 'sand' ? 'Stop (Sand)' : 'Auto: Sand'}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-secondary btn-xs ${fluidAutoPourKind === 'ferro' ? 'btn-primary' : ''}`}
+              onClick={() =>
+                setFluidAutoPourKind(fluidAutoPourKind === 'ferro' ? 'none' : 'ferro')
+              }
+            >
+              {fluidAutoPourKind === 'ferro' ? 'Stop (Ferro)' : 'Auto: Ferro'}
             </button>
           </div>
           <div className="exp-action-row" style={{ marginTop: 6 }}>
@@ -246,14 +302,14 @@ export const SandWaterWorkspace: React.FC = () => {
             <button
               type="button"
               className="btn btn-secondary btn-xs"
-              onClick={() => updateFluidConfig({ gravityY: 0, gravityX: 0 })}
+              onClick={() => updateFluidConfig({ gravityY: 0, gravityX: 0, gravityZ: 0 })}
             >
               Zero-G Float
             </button>
             <button
               type="button"
               className="btn btn-secondary btn-xs"
-              onClick={() => updateFluidConfig({ gravityY: -18, gravityX: 0 })}
+              onClick={() => updateFluidConfig({ gravityY: -18, gravityX: 0, gravityZ: 0 })}
             >
               Normal Gravity
             </button>
@@ -273,6 +329,24 @@ export const SandWaterWorkspace: React.FC = () => {
               value={fluidConfig.gravityX}
               onChange={(e) =>
                 updateFluidConfig({ gravityX: Number(e.target.value) })
+              }
+            />
+          </div>
+
+          <div className="nuclear-slider-group">
+            <div className="nuclear-slider-label">
+              <span>Tilt Gravity (Front / Back Z)</span>
+              <span className="mono">{(fluidConfig.gravityZ ?? 0).toFixed(1)}</span>
+            </div>
+            <input
+              aria-label="Depth tilt gravity"
+              type="range"
+              min={-12}
+              max={12}
+              step={0.5}
+              value={fluidConfig.gravityZ ?? 0}
+              onChange={(e) =>
+                updateFluidConfig({ gravityZ: Number(e.target.value) })
               }
             />
           </div>
@@ -359,9 +433,10 @@ export const SandWaterWorkspace: React.FC = () => {
           <div className="observables-grid">
             <div className="observables-stats">
               <div className="stat-card">
-                <span className="field-label">Water / Sand Grains</span>
+                <span className="field-label">Water · Oil · Sand · Ferro</span>
                 <span className="stat-val mono">
-                  {fluidStats.waterCount} / {fluidStats.sandCount}
+                  {fluidStats.waterCount} · {fluidStats.oilCount} · {fluidStats.sandCount} ·{' '}
+                  {fluidStats.ferroCount}
                 </span>
               </div>
               <div className="stat-card">
@@ -388,17 +463,16 @@ export const SandWaterWorkspace: React.FC = () => {
 
             <div className="observables-visual">
               <p className="small-text" style={{ margin: '3px 0' }}>
-                <strong>Why Sand &amp; Water behave differently here:</strong>{' '}
-                <strong>Water</strong> uses <em>SPH fluid pressure + viscosity</em> so droplets
-                flow smoothly and splash. <strong>Sand</strong> uses <em>DEM granular contacts +
-                friction</em> and is 2.4× denser, so grains sink to the bottom and pile up instead
-                of flattening out.
+                <strong>4-Material Physics &amp; 3D Maze:</strong>{' '}
+                <strong>Oil</strong> (ρ=0.72) is immiscible with <strong>Water</strong> (ρ=1.0) and
+                floats on top. <strong>Sand</strong> (ρ=2.4) sinks &amp; piles via friction, while{' '}
+                <strong>Ferrofluid</strong> (ρ=3.2) reacts strongly to the <strong>Magnet</strong>{' '}
+                tool!
               </p>
               <p className="small-text muted" style={{ margin: 0 }}>
-                Try pouring <strong>Sand</strong> into a <strong>Water</strong> pool, cranking{' '}
-                <strong>Sand Grain Friction</strong> to 0 vs. 0.8, or switching to{' '}
-                <strong>Experiment (OpenMM)</strong> to compare against real nanometer-scale{' '}
-                <code>H₂O</code> molecules!
+                Try <strong>3D Cascade Maze</strong> with <strong>Auto: Water / Oil</strong>, or{' '}
+                <strong>4-Layer Density Tower</strong> with <strong>Magnet</strong> drag +{' '}
+                <strong>Tilt Z</strong>.
               </p>
             </div>
           </div>

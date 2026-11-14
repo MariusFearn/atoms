@@ -1,11 +1,14 @@
 /// <reference types="@webgpu/types" />
 import {
   type MacroParticleKind,
+  type ObstacleBox3D,
   type SandWaterConfig,
   type SandWaterPresetId,
+  getObstaclesForPreset,
 } from '@matterlab/domain';
 
 export const MAX_GPU_PARTICLES = 65536;
+export const MAX_GPU_OBSTACLES = 24;
 
 // Grid covering [-4.6, 4.6] x [-0.1, 7.1] x [-2.3, 2.3] at cell = 0.18
 const GRID_NX = 52;
@@ -19,6 +22,8 @@ const GRID_MIN_Z = -2.34;
 
 export const GPU_WATER_RADIUS = 0.052;
 export const GPU_SAND_RADIUS = 0.048;
+export const GPU_OIL_RADIUS = 0.053;
+export const GPU_FERRO_RADIUS = 0.048;
 
 export interface GpuContainerMode {
   isGlassMode: boolean;
@@ -40,18 +45,24 @@ export const DEFAULT_GLASS_CONTAINER: GpuContainerMode = {
 
 const COMPUTE_WGSL = /* wgsl */ `
 struct SimParams {
-  uCounts: vec4<u32>,      // x=activeCount, y=maxParticles, z=totalGridCells, w=hasObstacle
+  uCounts: vec4<u32>,      // x=activeCount, y=maxParticles, z=totalGridCells, w=obstacleCount
   uGridDims: vec4<u32>,    // x=nx, y=ny, z=nz, w=isGlassMode
   uGridMin: vec4<f32>,     // xyz=gridMin, w=cellSize
   uPhysics1: vec4<f32>,    // x=dt, y=gravityX, z=gravityY, w=viscosity
   uPhysics2: vec4<f32>,    // x=sandFriction, y=stiffness, z=h, w=restDensity
   uRadii: vec4<f32>,       // x=waterR, y=sandR, z=glassRBottom, w=glassRTop
   uStirPos: vec4<f32>,     // xyz=stirPos, w=stirRadius
-  uStirVel: vec4<f32>,     // xyz=stirVel, w=mode (0=none, 1=stir, 2=shake)
+  uStirVel: vec4<f32>,     // xyz=stirVel, w=mode (0=none, 1=stir, 2=shake, 3=magnet)
   uCameraRight: vec4<f32>, // xyz=camRight, w=tankMaxY
   uCameraUp: vec4<f32>,    // xyz=camUp, w=tankHalfX
   uCameraPos: vec4<f32>,   // xyz=camPos, w=tankHalfZ
+  uExtra: vec4<f32>,       // x=gravityZ, y=oilR, z=ferroR, w=0
   uViewProj: mat4x4<f32>,
+};
+
+struct ObstacleBox {
+  centerAndAngle: vec4<f32>, // xyz=center, w=angleZ
+  halfSizes: vec4<f32>,      // xyz=halfExtents, w=0
 };
 
 @group(0) @binding(0) var<uniform> params: SimParams;
@@ -62,6 +73,25 @@ struct SimParams {
 @group(0) @binding(5) var<storage, read_write> densityBuf: array<vec2<f32>>;
 @group(0) @binding(6) var<storage, read_write> cellHead: array<atomic<i32>>;
 @group(0) @binding(7) var<storage, read_write> cellNext: array<i32>;
+@group(0) @binding(8) var<storage, read> obstacles: array<ObstacleBox>;
+
+fn particleMass(k: f32) -> f32 {
+  if (k < 0.5) { return 1.0; }       // water
+  if (k < 1.5) { return 2.4; }       // sand
+  if (k < 2.5) { return 0.72; }      // oil (floats above water)
+  return 3.2;                        // ferrofluid (dense metallic)
+}
+
+fn particleRadius(k: f32) -> f32 {
+  if (k < 0.5) { return params.uRadii.x; }
+  if (k < 1.5) { return params.uRadii.y; }
+  if (k < 2.5) { return params.uExtra.y; }
+  return params.uExtra.z;
+}
+
+fn isFluidKind(k: f32) -> bool {
+  return k < 0.5 || (k > 1.5 && k < 2.5);
+}
 
 fn coordToCell(p: vec3<f32>) -> vec3<i32> {
   let invCell = 1.0 / params.uGridMin.w;
@@ -97,7 +127,7 @@ fn computeDensity(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
   if (i >= params.uCounts.x) { return; }
   let pInfo = posIn[i];
-  if (pInfo.w > 0.5) {
+  if (!isFluidKind(pInfo.w)) {
     densityBuf[i] = vec2<f32>(params.uPhysics2.w, 0.0);
     return;
   }
@@ -105,7 +135,7 @@ fn computeDensity(@builtin(global_invocation_id) gid: vec3<u32>) {
   let p = pInfo.xyz;
   let h = params.uPhysics2.z;
   let h2 = h * h;
-  let poly6 = 7898114.0; // 315 / (64 * pi * 0.18^9)
+  let poly6 = 7898114.0;
   let c0 = coordToCell(p);
   let nxMax = i32(params.uGridDims.x) - 1;
   let nyMax = i32(params.uGridDims.y) - 1;
@@ -123,8 +153,7 @@ fn computeDensity(@builtin(global_invocation_id) gid: vec3<u32>) {
           let r2 = dot(d, d);
           if (r2 < h2) {
             let diff = h2 - r2;
-            let massJ = select(1.0, 0.72, pj.w > 0.5);
-            rho = rho + massJ * poly6 * diff * diff * diff;
+            rho = rho + particleMass(pj.w) * poly6 * diff * diff * diff;
           }
           j = cellNext[u32(j)];
           iter = iter + 1;
@@ -133,7 +162,8 @@ fn computeDensity(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  let restRho = params.uPhysics2.w;
+  let targetScale = select(1.0, 0.72, pInfo.w > 1.5);
+  let restRho = params.uPhysics2.w * targetScale;
   let clampedRho = max(restRho * 0.35, rho);
   let gasK = 0.22 * params.uPhysics2.y;
   let press = gasK * max(0.0, clampedRho - restRho);
@@ -159,14 +189,14 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
   let vInfo = velIn[i];
   let pi = pInfo.xyz;
   var vi = vInfo.xyz;
-  let kindI = pInfo.w; // 0 = water, 1 = sand
-  let isWaterI = kindI < 0.5;
-  let massI = select(2.4, 1.0, isWaterI);
-  let radI = select(params.uRadii.y, params.uRadii.x, isWaterI);
+  let kindI = pInfo.w; // 0=water, 1=sand, 2=oil, 3=ferro
+  let fluidI = isFluidKind(kindI);
+  let massI = particleMass(kindI);
+  let radI = particleRadius(kindI);
 
   let h = params.uPhysics2.z;
   let h2 = h * h;
-  let spikyCoeff = 421072.7; // 45 / (pi * 0.18^6)
+  let spikyCoeff = 421072.7;
   let viscCoeff = 421072.7;
   let pressI = densityBuf[i].y;
   let viscMu = 0.008 + params.uPhysics1.w * 0.095;
@@ -174,7 +204,11 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
   let sandCn = 24.0;
   let sandMu = params.uPhysics2.x;
 
-  var force = vec3<f32>(params.uPhysics1.y * massI, params.uPhysics1.z * massI, 0.0);
+  var force = vec3<f32>(
+    params.uPhysics1.y * massI,
+    params.uPhysics1.z * massI,
+    params.uExtra.x * massI,
+  );
 
   let c0 = coordToCell(pi);
   let nxMax = i32(params.uGridDims.x) - 1;
@@ -195,24 +229,28 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
             if (r2 < h2 && r2 > 1e-10) {
               let r = sqrt(r2);
               let n = d / r;
-              let isWaterJ = pjInfo.w < 0.5;
-              let radJ = select(params.uRadii.y, params.uRadii.x, isWaterJ);
+              let kindJ = pjInfo.w;
+              let fluidJ = isFluidKind(kindJ);
+              let radJ = particleRadius(kindJ);
               let minDist = radI + radJ;
               let vj = velIn[uj].xyz;
 
-              if (isWaterI && isWaterJ) {
+              if (fluidI && fluidJ) {
                 let hMinusR = h - r;
-                let rhoJ = max(200.0, densityBuf[uj].x);
+                let rhoJ = max(180.0, densityBuf[uj].x);
                 let pAvg = 0.5 * (pressI + densityBuf[uj].y);
                 let fPress = (spikyCoeff * pAvg * hMinusR * hMinusR) / rhoJ;
-                let fViscScale = (viscMu * viscCoeff * hMinusR) / rhoJ;
-                force = force + fPress * n + fViscScale * (vj - vi);
+                let viscBoost = select(1.0, 1.55, kindI > 1.5 || kindJ > 1.5);
+                let fViscScale = (viscMu * viscBoost * viscCoeff * hMinusR) / rhoJ;
+                let immiscible = select(0.0, 65.0 * hMinusR, abs(kindI - kindJ) > 0.5);
+
+                force = force + (fPress + immiscible) * n + fViscScale * (vj - vi);
 
                 if (r < minDist * 0.88) {
                   let pen = minDist * 0.88 - r;
                   force = force + (180.0 * pen) * n;
                 }
-              } else if (!isWaterI && !isWaterJ) {
+              } else if (!fluidI && !fluidJ) {
                 if (r < minDist) {
                   let overlap = minDist - r;
                   let rv = vi - vj;
@@ -228,7 +266,6 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
                   force = force + fNorm * n - fric;
                 }
               } else {
-                // Sand-water coupling
                 if (r < minDist * 1.2) {
                   let overlap = max(0.0, minDist - r);
                   let rv = vi - vj;
@@ -247,8 +284,17 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  // Interactive stir or shake impulse
-  if (params.uStirVel.w > 1.5) {
+  // Interactive stir, shake, or magnet attraction (ferrofluid only!)
+  if (params.uStirVel.w > 2.5) {
+    if (kindI > 2.5) {
+      let md = params.uStirPos.xyz - pi;
+      let mDist = length(md);
+      if (mDist < params.uStirPos.w * 4.2 && mDist > 0.05) {
+        let pull = 280.0 / (0.12 + mDist * mDist);
+        force = force + (md / mDist) * pull - vi * 4.0;
+      }
+    }
+  } else if (params.uStirVel.w > 1.5) {
     vi = vi + vec3<f32>(
       hashFloat(i * 3u + 1u) * 8.0,
       4.5 + abs(hashFloat(i * 7u + 2u)) * 5.0,
@@ -271,11 +317,10 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   var np = pi + vi * dt;
-  let bounce = select(0.12, 0.22, isWaterI);
-  let wallFric = select(max(0.45, 1.0 - sandMu * 0.5), 0.992, isWaterI);
+  let bounce = select(0.12, 0.22, fluidI);
+  let wallFric = select(max(0.45, 1.0 - sandMu * 0.5), 0.992, fluidI);
   let maxY = params.uCameraRight.w;
 
-  // Floor & ceiling
   if (np.y < radI) {
     np.y = radI;
     if (vi.y < 0.0) { vi.y = -vi.y * bounce; }
@@ -287,7 +332,6 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
 
   if (params.uGridDims.w == 1u) {
-    // Tapered cylindrical drinking glass centered at (0, y, 0)
     let t = clamp(np.y / maxY, 0.0, 1.0);
     let rGlass = mix(params.uRadii.z, params.uRadii.w, t) - radI;
     let radXZ = sqrt(np.x * np.x + np.z * np.z);
@@ -303,7 +347,6 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
       vi.y = vi.y * wallFric;
     }
   } else {
-    // Rectangular lab tank
     let hx = params.uCameraUp.w - radI;
     let hz = params.uCameraPos.w - radI;
     if (np.x < -hx) {
@@ -321,26 +364,53 @@ fn integrateForces(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (vi.z > 0.0) { vi.z = -vi.z * bounce; }
     }
 
-    // Optional center barrier
-    if (params.uCounts.w == 1u) {
-      let oHalfX = 0.35 + radI;
-      let oMaxY = 2.5 + radI;
-      if (np.x > -oHalfX && np.x < oHalfX && np.y < oMaxY) {
-        let pLeft = np.x + oHalfX;
-        let pRight = oHalfX - np.x;
-        let pTop = oMaxY - np.y;
-        if (pTop <= pLeft && pTop <= pRight) {
-          np.y = oMaxY;
-          if (vi.y < 0.0) { vi.y = -vi.y * bounce; }
-          vi.x = vi.x * wallFric;
+    // 3D Maze / Funnel / Peg Obstacles (up to 24 tilted boxes)
+    let obsCount = min(params.uCounts.w, 24u);
+    for (var oi: u32 = 0u; oi < obsCount; oi = oi + 1u) {
+      let ob = obstacles[oi];
+      let ang = ob.centerAndAngle.w;
+      let cosA = cos(ang);
+      let sinA = sin(ang);
+      let dx = np.x - ob.centerAndAngle.x;
+      let dy = np.y - ob.centerAndAngle.y;
+      let lx = dx * cosA + dy * sinA;
+      let ly = -dx * sinA + dy * cosA;
+      let lz = np.z - ob.centerAndAngle.z;
+      let ex = ob.halfSizes.x + radI;
+      let ey = ob.halfSizes.y + radI;
+      let ez = ob.halfSizes.z + radI;
+      if (abs(lx) < ex && abs(ly) < ey && abs(lz) < ez) {
+        let pX = ex - abs(lx);
+        let pY = ey - abs(ly);
+        let pZ = ez - abs(lz);
+        let lvx = vi.x * cosA + vi.y * sinA;
+        let lvy = -vi.x * sinA + vi.y * cosA;
+        var nlx = lx;
+        var nly = ly;
+        var nlvx = lvx;
+        var nlvy = lvy;
+        if (pY <= pX && pY <= pZ) {
+          nly = select(-ey, ey, ly >= 0.0);
+          if ((ly >= 0.0 && lvy < 0.0) || (ly < 0.0 && lvy > 0.0)) {
+            nlvy = -lvy * bounce;
+          }
+          nlvx = nlvx * wallFric;
           vi.z = vi.z * wallFric;
-        } else if (pLeft < pRight) {
-          np.x = -oHalfX;
-          if (vi.x > 0.0) { vi.x = -vi.x * bounce; }
+        } else if (pX <= pZ) {
+          nlx = select(-ex, ex, lx >= 0.0);
+          if ((lx >= 0.0 && lvx < 0.0) || (lx < 0.0 && lvx > 0.0)) {
+            nlvx = -lvx * bounce;
+          }
         } else {
-          np.x = oHalfX;
-          if (vi.x < 0.0) { vi.x = -vi.x * bounce; }
+          np.z = ob.centerAndAngle.z + select(-ez, ez, lz >= 0.0);
+          if ((lz >= 0.0 && vi.z < 0.0) || (lz < 0.0 && vi.z > 0.0)) {
+            vi.z = -vi.z * bounce;
+          }
         }
+        np.x = ob.centerAndAngle.x + nlx * cosA - nly * sinA;
+        np.y = ob.centerAndAngle.y + nlx * sinA + nly * cosA;
+        vi.x = nlvx * cosA - nlvy * sinA;
+        vi.y = nlvx * sinA + nlvy * cosA;
       }
     }
   }
@@ -363,6 +433,7 @@ struct SimParams {
   uCameraRight: vec4<f32>,
   uCameraUp: vec4<f32>,
   uCameraPos: vec4<f32>,
+  uExtra: vec4<f32>,
   uViewProj: mat4x4<f32>,
 };
 
@@ -393,8 +464,14 @@ fn vsMain(
   );
   let uv = corners[vIdx];
   let pInfo = posBuf[iIdx];
-  let isWater = pInfo.w < 0.5;
-  let r = select(params.uRadii.y * 1.05, params.uRadii.x * 1.38, isWater);
+  var r = params.uRadii.y * 1.05;
+  if (pInfo.w < 0.5) {
+    r = params.uRadii.x * 1.38;
+  } else if (pInfo.w > 1.5 && pInfo.w < 2.5) {
+    r = params.uExtra.y * 1.35;
+  } else if (pInfo.w >= 2.5) {
+    r = params.uExtra.z * 1.1;
+  }
   let worldPos = pInfo.xyz + params.uCameraRight.xyz * (uv.x * r) + params.uCameraUp.xyz * (uv.y * r);
 
   var out: VSOut;
@@ -433,21 +510,29 @@ fn fsMain(in: VSOut) -> FSOut {
   let viewDir = normalize(params.uCameraPos.xyz - surfaceWorld);
   let diff = max(0.0, dot(normal, lightDir));
   let halfVec = normalize(lightDir + viewDir);
+  let fresnel = pow(1.0 - max(0.0, dot(normal, viewDir)), 2.6);
 
   var rgb: vec3<f32>;
   if (in.kind < 0.5) {
-    // Glossy water droplet shading with Fresnel rim + crisp specular highlight
-    let fresnel = pow(1.0 - max(0.0, dot(normal, viewDir)), 2.6);
     let spec = pow(max(0.0, dot(normal, halfVec)), 52.0);
     let deepWater = vec3<f32>(0.03, 0.36, 0.68);
     let brightWater = vec3<f32>(0.24, 0.76, 0.98);
     rgb = mix(deepWater, brightWater, 0.35 + 0.55 * diff + 0.45 * fresnel) + vec3<f32>(0.9, 0.97, 1.0) * spec * 0.85;
-  } else {
-    // Matte multi-tone desert sand grain
+  } else if (in.kind < 1.5) {
     let shade = f32((in.pid * 2654435761u) & 255u) / 255.0;
     let sandBase = mix(vec3<f32>(0.78, 0.55, 0.14), vec3<f32>(0.96, 0.78, 0.28), shade);
     let ao = clamp(0.45 + 0.12 * in.worldCenter.y, 0.45, 1.0);
     rgb = sandBase * (0.28 + 0.72 * diff) * ao;
+  } else if (in.kind < 2.5) {
+    let spec = pow(max(0.0, dot(normal, halfVec)), 40.0);
+    let deepOil = vec3<f32>(0.24, 0.48, 0.06);
+    let brightOil = vec3<f32>(0.68, 0.92, 0.22);
+    rgb = mix(deepOil, brightOil, 0.35 + 0.55 * diff + 0.4 * fresnel) + vec3<f32>(1.0, 0.98, 0.75) * spec * 0.75;
+  } else {
+    let spec = pow(max(0.0, dot(normal, halfVec)), 64.0);
+    let baseFerro = vec3<f32>(0.10, 0.09, 0.18);
+    let rimFerro = vec3<f32>(0.55, 0.32, 0.92);
+    rgb = baseFerro * (0.3 + 0.7 * diff) + rimFerro * fresnel * 0.65 + vec3<f32>(0.92, 0.84, 1.0) * spec * 1.1;
   }
 
   var out: FSOut;
@@ -457,7 +542,7 @@ fn fsMain(in: VSOut) -> FSOut {
 }
 `;
 
-const RENDER_LINES_WGSL = /* wgsl */ `
+const RENDER_GEOM_WGSL = /* wgsl */ `
 struct SimParams {
   uCounts: vec4<u32>,
   uGridDims: vec4<u32>,
@@ -470,35 +555,38 @@ struct SimParams {
   uCameraRight: vec4<f32>,
   uCameraUp: vec4<f32>,
   uCameraPos: vec4<f32>,
+  uExtra: vec4<f32>,
   uViewProj: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: SimParams;
 
-struct LineVSOut {
+struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) color: vec4<f32>,
 };
 
 @vertex
-fn vsLine(@location(0) pos: vec3<f32>, @location(1) col: vec4<f32>) -> LineVSOut {
-  var out: LineVSOut;
+fn vsGeom(@location(0) pos: vec3<f32>, @location(1) col: vec4<f32>) -> VSOut {
+  var out: VSOut;
   out.pos = params.uViewProj * vec4<f32>(pos, 1.0);
   out.color = col;
   return out;
 }
 
 @fragment
-fn fsLine(in: LineVSOut) -> @location(0) vec4<f32> {
+fn fsGeom(in: VSOut) -> @location(0) vec4<f32> {
   return in.color;
 }
 `;
 
-function buildContainerLineVertices(
+function buildContainerAndObstacleGeometry(
   container: GpuContainerMode,
-  hasObstacle: boolean,
-): Float32Array {
-  const verts: number[] = [];
+  obstacles: ObstacleBox3D[],
+): { lineVerts: Float32Array; triVerts: Float32Array } {
+  const lineVerts: number[] = [];
+  const triVerts: number[] = [];
+
   const pushSeg = (
     x1: number,
     y1: number,
@@ -511,10 +599,31 @@ function buildContainerLineVertices(
     b: number,
     a: number,
   ) => {
-    verts.push(x1, y1, z1, r, g, b, a, x2, y2, z2, r, g, b, a);
+    lineVerts.push(x1, y1, z1, r, g, b, a, x2, y2, z2, r, g, b, a);
   };
 
-  // Subtle floor grid
+  const pushTri = (
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
+    cx: number,
+    cy: number,
+    cz: number,
+    r: number,
+    g: number,
+    b: number,
+    a: number,
+  ) => {
+    triVerts.push(
+      ax, ay, az, r, g, b, a,
+      bx, by, bz, r, g, b, a,
+      cx, cy, cz, r, g, b, a,
+    );
+  };
+
   for (let gx = -8; gx <= 8; gx += 2) {
     pushSeg(gx, 0, -6, gx, 0, 6, 0.14, 0.2, 0.32, 0.55);
   }
@@ -547,7 +656,6 @@ function buildContainerLineVertices(
         );
       }
     }
-    // 12 vertical glass ribs
     for (let s = 0; s < 12; s++) {
       const a = (s / 12) * Math.PI * 2;
       const c = Math.cos(a);
@@ -570,14 +678,12 @@ function buildContainerLineVertices(
     const hy = container.tankMaxY;
     const hz = container.tankHalfZ;
     const c: [number, number, number, number] = [0.35, 0.48, 0.65, 0.7];
-    // Bottom & top rectangles
     for (const y of [0, hy]) {
       pushSeg(-hx, y, -hz, hx, y, -hz, ...c);
       pushSeg(hx, y, -hz, hx, y, hz, ...c);
       pushSeg(hx, y, hz, -hx, y, hz, ...c);
       pushSeg(-hx, y, hz, -hx, y, -hz, ...c);
     }
-    // Vertical edges
     for (const [x, z] of [
       [-hx, -hz],
       [hx, -hz],
@@ -587,28 +693,59 @@ function buildContainerLineVertices(
       pushSeg(x, 0, z, x, hy, z, ...c);
     }
 
-    if (hasObstacle) {
-      const ox = 0.35;
-      const oy = 2.5;
-      const oc: [number, number, number, number] = [0.95, 0.6, 0.25, 0.85];
-      for (const y of [0, oy]) {
-        pushSeg(-ox, y, -hz, ox, y, -hz, ...oc);
-        pushSeg(ox, y, -hz, ox, y, hz, ...oc);
-        pushSeg(ox, y, hz, -ox, y, hz, ...oc);
-        pushSeg(-ox, y, hz, -ox, y, -hz, ...oc);
-      }
-      for (const [x, z] of [
-        [-ox, -hz],
-        [ox, -hz],
-        [ox, hz],
-        [-ox, hz],
+    for (const ob of obstacles) {
+      const cosA = Math.cos(ob.angleZ);
+      const sinA = Math.sin(ob.angleZ);
+      const toWorld = (lx: number, ly: number, lz: number): [number, number, number] => [
+        ob.cx + lx * cosA - ly * sinA,
+        ob.cy + lx * sinA + ly * cosA,
+        ob.cz + lz,
+      ];
+      const p = [
+        toWorld(-ob.hx, -ob.hy, -ob.hz),
+        toWorld(ob.hx, -ob.hy, -ob.hz),
+        toWorld(ob.hx, ob.hy, -ob.hz),
+        toWorld(-ob.hx, ob.hy, -ob.hz),
+        toWorld(-ob.hx, -ob.hy, ob.hz),
+        toWorld(ob.hx, -ob.hy, ob.hz),
+        toWorld(ob.hx, ob.hy, ob.hz),
+        toWorld(-ob.hx, ob.hy, ob.hz),
+      ] as const;
+
+      const ec: [number, number, number, number] = [0.38, 0.8, 0.98, 0.85];
+      for (const [i, j] of [
+        [0, 1], [1, 2], [2, 3], [3, 0],
+        [4, 5], [5, 6], [6, 7], [7, 4],
+        [0, 4], [1, 5], [2, 6], [3, 7],
       ] as const) {
-        pushSeg(x, 0, z, x, oy, z, ...oc);
+        pushSeg(...p[i]!, ...p[j]!, ...ec);
       }
+
+      const quad = (
+        a: number,
+        b: number,
+        cIdx: number,
+        d: number,
+        r: number,
+        g: number,
+        bl: number,
+      ) => {
+        pushTri(...p[a]!, ...p[b]!, ...p[cIdx]!, r, g, bl, 0.85);
+        pushTri(...p[a]!, ...p[cIdx]!, ...p[d]!, r, g, bl, 0.85);
+      };
+      quad(3, 2, 6, 7, 0.16, 0.25, 0.38);
+      quad(0, 4, 5, 1, 0.08, 0.12, 0.18);
+      quad(4, 5, 6, 7, 0.12, 0.19, 0.29);
+      quad(1, 0, 3, 2, 0.10, 0.15, 0.23);
+      quad(0, 4, 7, 3, 0.11, 0.16, 0.25);
+      quad(5, 1, 2, 6, 0.14, 0.20, 0.31);
     }
   }
 
-  return new Float32Array(verts);
+  return {
+    lineVerts: new Float32Array(lineVerts),
+    triVerts: new Float32Array(triVerts),
+  };
 }
 
 export function generateGpuPresetParticles(
@@ -635,7 +772,8 @@ export function generateGpuPresetParticles(
     pos[base] = x;
     pos[base + 1] = y;
     pos[base + 2] = z;
-    pos[base + 3] = kind === 'water' ? 0.0 : 1.0;
+    pos[base + 3] =
+      kind === 'water' ? 0.0 : kind === 'sand' ? 1.0 : kind === 'oil' ? 2.0 : 3.0;
     vel[base] = vx;
     vel[base + 1] = vy;
     vel[base + 2] = vz;
@@ -652,8 +790,37 @@ export function generateGpuPresetParticles(
   };
 
   if (isGlassMode) {
+    if (presetId === 'density-tower') {
+      const bands: Array<{
+        kind: MacroParticleKind;
+        y0: number;
+        yLayers: number;
+        rMax: number;
+        share: number;
+      }> = [
+        { kind: 'ferro', y0: 0.15, yLayers: 6, rMax: 1.75, share: 0.22 },
+        { kind: 'sand', y0: 0.85, yLayers: 7, rMax: 1.8, share: 0.24 },
+        { kind: 'water', y0: 1.7, yLayers: 11, rMax: 1.9, share: 0.30 },
+        { kind: 'oil', y0: 3.0, yLayers: 10, rMax: 2.0, share: 0.24 },
+      ];
+      let usedCap = 0;
+      for (const band of bands) {
+        usedCap = Math.min(maxCount, usedCap + Math.floor(maxCount * band.share));
+        for (let iy = 0; iy < band.yLayers && count < usedCap; iy++) {
+          const y = band.y0 + iy * spacing;
+          for (let x = -band.rMax; x <= band.rMax && count < usedCap; x += spacing) {
+            for (let z = -band.rMax; z <= band.rMax && count < usedCap; z += spacing) {
+              if (x * x + z * z <= band.rMax * band.rMax) {
+                push(band.kind, x + jitter(), y, z + jitter());
+              }
+            }
+          }
+        }
+      }
+      return { pos, vel, count, hasObstacle: false };
+    }
+
     if (presetId === 'sand-pile') {
-      // Pure fine sand falling into cylindrical glass
       for (let iy = 0; iy < 34 && count < maxCount; iy++) {
         const y = 1.1 + iy * spacing;
         const rMax = 1.65;
@@ -669,7 +836,6 @@ export function generateGpuPresetParticles(
     }
 
     if (presetId === 'dam-break') {
-      // Tall swirling water wave column inside cylindrical glass
       for (let iy = 0; iy < 38 && count < maxCount; iy++) {
         const y = 0.15 + iy * spacing;
         const rMax = 1.35;
@@ -684,7 +850,6 @@ export function generateGpuPresetParticles(
       return { pos, vel, count, hasObstacle: false };
     }
 
-    // Default 'sand-into-water' or 'obstacle-splash' in glass: deep clear water + heavy sand drop
     const waterTarget = Math.floor(maxCount * 0.72);
     for (let iy = 0; iy < 24 && count < waterTarget; iy++) {
       const y = 0.12 + iy * spacing;
@@ -704,6 +869,90 @@ export function generateGpuPresetParticles(
         for (let z = -rMax; z <= rMax && count < maxCount; z += spacing) {
           if (x * x + z * z <= rMax * rMax) {
             push('sand', x + jitter(), y, z + jitter(), 0, -1.2, 0);
+          }
+        }
+      }
+    }
+    return { pos, vel, count, hasObstacle: false };
+  }
+
+  if (presetId === 'cascade-maze') {
+    const waterCap = Math.floor(maxCount * 0.65);
+    for (let iy = 0; iy < 10 && count < waterCap; iy++) {
+      for (let ix = 0; ix < 24 && count < waterCap; ix++) {
+        for (let iz = 0; iz < 28 && count < waterCap; iz++) {
+          push(
+            'water',
+            -4.1 + ix * spacing + jitter(),
+            5.55 + iy * spacing,
+            -1.5 + iz * spacing + jitter(),
+            1.6,
+            0,
+            0,
+          );
+        }
+      }
+    }
+    for (let iy = 0; iy < 6 && count < maxCount; iy++) {
+      for (let ix = 0; ix < 16 && count < maxCount; ix++) {
+        for (let iz = 0; iz < 24 && count < maxCount; iz++) {
+          push(
+            'oil',
+            -3.9 + ix * spacing + jitter(),
+            5.75 + iy * spacing,
+            -1.3 + iz * spacing + jitter(),
+            1.2,
+            0,
+            0,
+          );
+        }
+      }
+    }
+    return { pos, vel, count, hasObstacle: true };
+  }
+
+  if (presetId === 'plinko-funnel') {
+    for (let iy = 0; iy < 10 && count < maxCount; iy++) {
+      for (let ix = 0; ix < 24 && count < maxCount; ix++) {
+        for (let iz = 0; iz < 28 && count < maxCount; iz++) {
+          const kind: MacroParticleKind =
+            (ix + iy) % 4 === 0 ? 'sand' : (ix + iz) % 5 === 0 ? 'oil' : 'water';
+          push(
+            kind,
+            -1.25 + ix * spacing + jitter(),
+            5.65 + iy * spacing,
+            -1.5 + iz * spacing + jitter(),
+          );
+        }
+      }
+    }
+    return { pos, vel, count, hasObstacle: true };
+  }
+
+  if (presetId === 'density-tower') {
+    const bands: Array<{
+      kind: MacroParticleKind;
+      yStart: number;
+      yRows: number;
+      share: number;
+    }> = [
+      { kind: 'ferro', yStart: 0.15, yRows: 6, share: 0.22 },
+      { kind: 'sand', yStart: 0.85, yRows: 7, share: 0.24 },
+      { kind: 'water', yStart: 1.7, yRows: 12, share: 0.30 },
+      { kind: 'oil', yStart: 3.1, yRows: 10, share: 0.24 },
+    ];
+    let usedCap = 0;
+    for (const band of bands) {
+      usedCap = Math.min(maxCount, usedCap + Math.floor(maxCount * band.share));
+      for (let iy = 0; iy < band.yRows && count < usedCap; iy++) {
+        for (let ix = 0; ix < 50 && count < usedCap; ix++) {
+          for (let iz = 0; iz < 24 && count < usedCap; iz++) {
+            push(
+              band.kind,
+              -2.9 + ix * 0.118 + jitter(),
+              band.yStart + iy * spacing,
+              -1.35 + iz * spacing + jitter(),
+            );
           }
         }
       }
@@ -812,7 +1061,7 @@ export class WebGpuFluidEngine {
   readonly adapterName: string;
 
   private uniformBuf: GPUBuffer;
-  private uniformBytes = new ArrayBuffer(240);
+  private uniformBytes = new ArrayBuffer(256);
   private uniformU32 = new Uint32Array(this.uniformBytes);
   private uniformF32 = new Float32Array(this.uniformBytes);
 
@@ -821,8 +1070,12 @@ export class WebGpuFluidEngine {
   private densityBuf: GPUBuffer;
   private cellHeadBuf: GPUBuffer;
   private cellNextBuf: GPUBuffer;
+  private obstacleBuf: GPUBuffer;
   private lineVertexBuf: GPUBuffer;
   private lineVertexCount = 0;
+  private triVertexBuf: GPUBuffer;
+  private triVertexCount = 0;
+  private obstacleCount = 0;
 
   private clearPipeline: GPUComputePipeline;
   private buildPipeline: GPUComputePipeline;
@@ -833,7 +1086,8 @@ export class WebGpuFluidEngine {
   private particlePipeline: GPURenderPipeline;
   private particleBindGroups: [GPUBindGroup, GPUBindGroup];
   private linePipeline: GPURenderPipeline;
-  private lineBindGroup: GPUBindGroup;
+  private triPipeline: GPURenderPipeline;
+  private geomBindGroup: GPUBindGroup;
 
   private depthTex: GPUTexture | null = null;
   private depthWidth = 0;
@@ -843,6 +1097,8 @@ export class WebGpuFluidEngine {
   activeCount = 0;
   waterCount = 0;
   sandCount = 0;
+  oilCount = 0;
+  ferroCount = 0;
   private destroyed = false;
 
   private constructor(
@@ -857,7 +1113,7 @@ export class WebGpuFluidEngine {
     this.adapterName = adapterName;
 
     this.uniformBuf = device.createBuffer({
-      size: 240,
+      size: 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -894,8 +1150,16 @@ export class WebGpuFluidEngine {
       size: MAX_GPU_PARTICLES * 4,
       usage: GPUBufferUsage.STORAGE,
     });
+    this.obstacleBuf = device.createBuffer({
+      size: MAX_GPU_OBSTACLES * 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
     this.lineVertexBuf = device.createBuffer({
-      size: 32768 * 4,
+      size: 65536 * 4,
+      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
+    this.triVertexBuf = device.createBuffer({
+      size: 65536 * 4,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
 
@@ -910,6 +1174,7 @@ export class WebGpuFluidEngine {
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     });
     const computePipeLayout = device.createPipelineLayout({
@@ -945,6 +1210,7 @@ export class WebGpuFluidEngine {
           { binding: 5, resource: { buffer: this.densityBuf } },
           { binding: 6, resource: { buffer: this.cellHeadBuf } },
           { binding: 7, resource: { buffer: this.cellNextBuf } },
+          { binding: 8, resource: { buffer: this.obstacleBuf } },
         ],
       });
 
@@ -991,61 +1257,51 @@ export class WebGpuFluidEngine {
       }),
     ];
 
-    const lineModule = device.createShaderModule({ code: RENDER_LINES_WGSL });
-    const lineLayout = device.createBindGroupLayout({
+    const geomModule = device.createShaderModule({ code: RENDER_GEOM_WGSL });
+    const geomLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: 'uniform' } },
       ],
     });
+    const geomBufferLayout: GPUVertexBufferLayout = {
+      arrayStride: 28,
+      attributes: [
+        { shaderLocation: 0, offset: 0, format: 'float32x3' },
+        { shaderLocation: 1, offset: 12, format: 'float32x4' },
+      ],
+    };
+    const alphaBlend: GPUBlendState = {
+      color: {
+        srcFactor: 'src-alpha',
+        dstFactor: 'one-minus-src-alpha',
+        operation: 'add',
+      },
+      alpha: {
+        srcFactor: 'one',
+        dstFactor: 'one-minus-src-alpha',
+        operation: 'add',
+      },
+    };
     this.linePipeline = device.createRenderPipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [lineLayout] }),
-      vertex: {
-        module: lineModule,
-        entryPoint: 'vsLine',
-        buffers: [
-          {
-            arrayStride: 28,
-            attributes: [
-              { shaderLocation: 0, offset: 0, format: 'float32x3' },
-              { shaderLocation: 1, offset: 12, format: 'float32x4' },
-            ],
-          },
-        ],
-      },
-      fragment: {
-        module: lineModule,
-        entryPoint: 'fsLine',
-        targets: [
-          {
-            format,
-            blend: {
-              color: {
-                srcFactor: 'src-alpha',
-                dstFactor: 'one-minus-src-alpha',
-                operation: 'add',
-              },
-              alpha: {
-                srcFactor: 'one',
-                dstFactor: 'one-minus-src-alpha',
-                operation: 'add',
-              },
-            },
-          },
-        ],
-      },
+      layout: device.createPipelineLayout({ bindGroupLayouts: [geomLayout] }),
+      vertex: { module: geomModule, entryPoint: 'vsGeom', buffers: [geomBufferLayout] },
+      fragment: { module: geomModule, entryPoint: 'fsGeom', targets: [{ format, blend: alphaBlend }] },
       primitive: { topology: 'line-list' },
-      depthStencil: {
-        format: 'depth24plus',
-        depthWriteEnabled: false,
-        depthCompare: 'less',
-      },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     });
-    this.lineBindGroup = device.createBindGroup({
-      layout: lineLayout,
+    this.triPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [geomLayout] }),
+      vertex: { module: geomModule, entryPoint: 'vsGeom', buffers: [geomBufferLayout] },
+      fragment: { module: geomModule, entryPoint: 'fsGeom', targets: [{ format, blend: alphaBlend }] },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
+    this.geomBindGroup = device.createBindGroup({
+      layout: geomLayout,
       entries: [{ binding: 0, resource: { buffer: this.uniformBuf } }],
     });
 
-    this.updateContainerMesh(DEFAULT_GLASS_CONTAINER, false);
+    this.updateContainerMesh(DEFAULT_GLASS_CONTAINER, 'sand-into-water', false);
   }
 
   static async create(
@@ -1085,10 +1341,53 @@ export class WebGpuFluidEngine {
     }
   }
 
-  updateContainerMesh(container: GpuContainerMode, hasObstacle: boolean): void {
-    const verts = buildContainerLineVertices(container, hasObstacle);
-    this.lineVertexCount = Math.floor(verts.length / 7);
-    this.device.queue.writeBuffer(this.lineVertexBuf, 0, verts.buffer as ArrayBuffer, 0, verts.byteLength);
+  updateContainerMesh(
+    container: GpuContainerMode,
+    presetId: SandWaterPresetId,
+    hasBarrier: boolean,
+  ): void {
+    const obsList = getObstaclesForPreset(presetId, hasBarrier, container.isGlassMode).slice(
+      0,
+      MAX_GPU_OBSTACLES,
+    );
+    this.obstacleCount = obsList.length;
+
+    const obsData = new Float32Array(MAX_GPU_OBSTACLES * 8);
+    for (let i = 0; i < obsList.length; i++) {
+      const ob = obsList[i]!;
+      const base = i * 8;
+      obsData[base] = ob.cx;
+      obsData[base + 1] = ob.cy;
+      obsData[base + 2] = ob.cz;
+      obsData[base + 3] = ob.angleZ;
+      obsData[base + 4] = ob.hx;
+      obsData[base + 5] = ob.hy;
+      obsData[base + 6] = ob.hz;
+      obsData[base + 7] = 0;
+    }
+    this.device.queue.writeBuffer(this.obstacleBuf, 0, obsData.buffer as ArrayBuffer);
+
+    const { lineVerts, triVerts } = buildContainerAndObstacleGeometry(container, obsList);
+    this.lineVertexCount = Math.floor(lineVerts.length / 7);
+    this.triVertexCount = Math.floor(triVerts.length / 7);
+    if (lineVerts.byteLength > 0) {
+      this.device.queue.writeBuffer(
+        this.lineVertexBuf,
+        0,
+        lineVerts.buffer as ArrayBuffer,
+        0,
+        lineVerts.byteLength,
+      );
+    }
+    if (triVerts.byteLength > 0) {
+      this.device.queue.writeBuffer(
+        this.triVertexBuf,
+        0,
+        triVerts.buffer as ArrayBuffer,
+        0,
+        triVerts.byteLength,
+      );
+    }
   }
 
   uploadParticles(pos: Float32Array, vel: Float32Array, count: number): void {
@@ -1096,12 +1395,19 @@ export class WebGpuFluidEngine {
     this.activeCount = Math.min(MAX_GPU_PARTICLES, count);
     let w = 0;
     let s = 0;
+    let o = 0;
+    let f = 0;
     for (let i = 0; i < this.activeCount; i++) {
-      if (pos[i * 4 + 3]! < 0.5) w += 1;
-      else s += 1;
+      const k = pos[i * 4 + 3]!;
+      if (k < 0.5) w += 1;
+      else if (k < 1.5) s += 1;
+      else if (k < 2.5) o += 1;
+      else f += 1;
     }
     this.waterCount = w;
     this.sandCount = s;
+    this.oilCount = o;
+    this.ferroCount = f;
     const byteLen = this.activeCount * 16;
     if (byteLen > 0) {
       this.device.queue.writeBuffer(this.posBuffers[0], 0, pos.buffer as ArrayBuffer, 0, byteLen);
@@ -1113,6 +1419,8 @@ export class WebGpuFluidEngine {
     this.activeCount = 0;
     this.waterCount = 0;
     this.sandCount = 0;
+    this.oilCount = 0;
+    this.ferroCount = 0;
   }
 
   spawnStream(
@@ -1128,7 +1436,7 @@ export class WebGpuFluidEngine {
 
     const posChunk = new Float32Array(n * 4);
     const velChunk = new Float32Array(n * 4);
-    const kVal = kind === 'water' ? 0.0 : 1.0;
+    const kVal = kind === 'water' ? 0.0 : kind === 'sand' ? 1.0 : kind === 'oil' ? 2.0 : 3.0;
 
     for (let k = 0; k < n; k++) {
       const ang = (k / n) * Math.PI * 2 + this.activeCount * 0.37;
@@ -1153,7 +1461,9 @@ export class WebGpuFluidEngine {
     this.device.queue.writeBuffer(this.velBuffers[this.ping]!, byteOffset, velChunk.buffer as ArrayBuffer);
     this.activeCount += n;
     if (kind === 'water') this.waterCount += n;
-    else this.sandCount += n;
+    else if (kind === 'sand') this.sandCount += n;
+    else if (kind === 'oil') this.oilCount += n;
+    else this.ferroCount += n;
   }
 
   stepAndRender(params: {
@@ -1165,7 +1475,7 @@ export class WebGpuFluidEngine {
     camRight: [number, number, number];
     camUp: [number, number, number];
     viewProj: Float32Array;
-    stirMode: 0 | 1 | 2; // 0=none, 1=stir, 2=shake
+    stirMode: 0 | 1 | 2 | 3; // 0=none, 1=stir, 2=shake, 3=magnet
     stirPos: [number, number, number];
     stirVel: [number, number, number];
   }): void {
@@ -1195,7 +1505,7 @@ export class WebGpuFluidEngine {
       u32[0] = this.activeCount;
       u32[1] = MAX_GPU_PARTICLES;
       u32[2] = GRID_TOTAL_CELLS;
-      u32[3] = config.hasObstacle ? 1 : 0;
+      u32[3] = this.obstacleCount;
 
       u32[4] = GRID_NX;
       u32[5] = GRID_NY;
@@ -1247,7 +1557,12 @@ export class WebGpuFluidEngine {
       f32[42] = params.camPos[2];
       f32[43] = container.tankHalfZ;
 
-      f32.set(params.viewProj, 44);
+      f32[44] = config.gravityZ ?? 0;
+      f32[45] = GPU_OIL_RADIUS;
+      f32[46] = GPU_FERRO_RADIUS;
+      f32[47] = 0;
+
+      f32.set(params.viewProj, 48);
       this.device.queue.writeBuffer(this.uniformBuf, 0, this.uniformBytes);
     };
 
@@ -1300,6 +1615,13 @@ export class WebGpuFluidEngine {
       },
     });
 
+    if (this.triVertexCount > 0) {
+      rPass.setPipeline(this.triPipeline);
+      rPass.setBindGroup(0, this.geomBindGroup);
+      rPass.setVertexBuffer(0, this.triVertexBuf);
+      rPass.draw(this.triVertexCount);
+    }
+
     if (this.activeCount > 0) {
       rPass.setPipeline(this.particlePipeline);
       rPass.setBindGroup(0, this.particleBindGroups[this.ping]!);
@@ -1308,7 +1630,7 @@ export class WebGpuFluidEngine {
 
     if (this.lineVertexCount > 0) {
       rPass.setPipeline(this.linePipeline);
-      rPass.setBindGroup(0, this.lineBindGroup);
+      rPass.setBindGroup(0, this.geomBindGroup);
       rPass.setVertexBuffer(0, this.lineVertexBuf);
       rPass.draw(this.lineVertexCount);
     }
@@ -1329,7 +1651,9 @@ export class WebGpuFluidEngine {
     this.densityBuf.destroy();
     this.cellHeadBuf.destroy();
     this.cellNextBuf.destroy();
+    this.obstacleBuf.destroy();
     this.lineVertexBuf.destroy();
+    this.triVertexBuf.destroy();
     this.device.destroy();
   }
 }

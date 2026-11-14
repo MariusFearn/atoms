@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
+  FERRO_RADIUS,
   MAX_MACRO_PARTICLES,
-  OBSTACLE_BOX,
+  type MacroParticleKind,
+  OIL_RADIUS,
   SAND_RADIUS,
   type SandWaterSimulationState,
   type StirImpulse,
@@ -12,17 +14,33 @@ import {
   applyShakeImpulse,
   computeSandWaterStats,
   createSandWaterState,
+  getObstaclesForPreset,
   loadSandWaterPreset,
   spawnMacroParticle,
   stepSandWaterSimulation,
 } from '@matterlab/domain';
-import { useLabStore } from '../../state/useLabStore';
+import { type SandWaterTool, useLabStore } from '../../state/useLabStore';
 import {
   DEFAULT_GLASS_CONTAINER,
   type GpuContainerMode,
   WebGpuFluidEngine,
   generateGpuPresetParticles,
 } from './webgpuFluidEngine';
+
+function toolToPourKind(tool: SandWaterTool): MacroParticleKind | null {
+  switch (tool) {
+    case 'pour-water':
+      return 'water';
+    case 'pour-sand':
+      return 'sand';
+    case 'pour-oil':
+      return 'oil';
+    case 'pour-ferro':
+      return 'ferro';
+    default:
+      return null;
+  }
+}
 
 function isWebGL2Available(): boolean {
   try {
@@ -100,11 +118,17 @@ export const SandWaterViewport: React.FC = () => {
           isGlass,
           stInit.fluidTargetParticleCount,
         );
-        gpuEngine.updateContainerMesh(gpuContainer, stInit.fluidConfig.hasObstacle);
+        gpuEngine.updateContainerMesh(
+          gpuContainer,
+          stInit.fluidPresetId,
+          stInit.fluidConfig.hasObstacle,
+        );
         gpuEngine.uploadParticles(presetData.pos, presetData.vel, presetData.count);
         stInit.setFluidStats({
           waterCount: gpuEngine.waterCount,
           sandCount: gpuEngine.sandCount,
+          oilCount: gpuEngine.oilCount,
+          ferroCount: gpuEngine.ferroCount,
           avgSandY: 0,
           avgWaterY: 0,
           kineticEnergy: 0,
@@ -236,8 +260,8 @@ export const SandWaterViewport: React.FC = () => {
             .multiply(camera.matrixWorldInverse);
           viewProjArr.set(viewProj.elements);
 
-          if (pointerActive && (st.fluidTool === 'pour-water' || st.fluidTool === 'pour-sand')) {
-            const kind = st.fluidTool === 'pour-water' ? 'water' : 'sand';
+          const pourKind = pointerActive ? toolToPourKind(st.fluidTool) : null;
+          if (pourKind) {
             let sx = currentHit.x;
             let sz = currentHit.z;
             const sy = Math.max(0.8, Math.min(6.1, currentHit.y));
@@ -252,15 +276,21 @@ export const SandWaterViewport: React.FC = () => {
               sx = Math.max(-4.1, Math.min(4.1, sx));
               sz = Math.max(-1.8, Math.min(1.8, sz));
             }
-            gpuEngine.spawnStream(kind, sx, sy, sz, 22);
+            gpuEngine.spawnStream(pourKind, sx, sy, sz, 22);
           } else if (!st.fluidConfig.paused && st.fluidAutoPourKind !== 'none') {
-            gpuEngine.spawnStream(st.fluidAutoPourKind, 0, 5.8, 0, 16);
+            const faucetX =
+              st.fluidContainerMode === 'tank' && st.fluidPresetId === 'cascade-maze'
+                ? -3.5
+                : 0;
+            gpuEngine.spawnStream(st.fluidAutoPourKind, faucetX, 5.95, 0, 16);
           }
 
-          let stirMode: 0 | 1 | 2 = 0;
+          let stirMode: 0 | 1 | 2 | 3 = 0;
           if (gpuShakePendingRef.current) {
             stirMode = 2;
             gpuShakePendingRef.current = false;
+          } else if (pointerActive && st.fluidTool === 'magnet') {
+            stirMode = 3;
           } else if (pointerActive && st.fluidTool === 'stir') {
             stirMode = 1;
           }
@@ -290,6 +320,8 @@ export const SandWaterViewport: React.FC = () => {
             st.setFluidStats({
               waterCount: gpuEngine.waterCount,
               sandCount: gpuEngine.sandCount,
+              oilCount: gpuEngine.oilCount,
+              ferroCount: gpuEngine.ferroCount,
               avgSandY: 0,
               avgWaterY: 0,
               kineticEnergy: 0,
@@ -379,16 +411,49 @@ export const SandWaterViewport: React.FC = () => {
       scene.add(glassLine);
       glassGeo.dispose();
 
-      const obstacleMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(
-          OBSTACLE_BOX.maxX - OBSTACLE_BOX.minX,
-          OBSTACLE_BOX.maxY - OBSTACLE_BOX.minY,
-          OBSTACLE_BOX.maxZ - OBSTACLE_BOX.minZ,
-        ),
-        new THREE.MeshStandardMaterial({ color: '#334155', transparent: true, opacity: 0.85 }),
-      );
-      obstacleMesh.position.set(0, (OBSTACLE_BOX.maxY - OBSTACLE_BOX.minY) / 2, 0);
-      scene.add(obstacleMesh);
+      const obstacleGroup = new THREE.Group();
+      const obstacleMat = new THREE.MeshStandardMaterial({
+        color: '#253952',
+        roughness: 0.45,
+        metalness: 0.25,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const obstacleEdgeMat = new THREE.LineBasicMaterial({
+        color: '#60ccfa',
+        transparent: true,
+        opacity: 0.85,
+      });
+      scene.add(obstacleGroup);
+      let obstacleKey = '';
+      const syncCpuObstacles = (
+        presetId: typeof stCpuInit.fluidPresetId,
+        hasBarrier: boolean,
+        isGlass: boolean,
+      ) => {
+        const key = `${presetId}|${hasBarrier}|${isGlass}`;
+        if (key === obstacleKey) return;
+        obstacleKey = key;
+        while (obstacleGroup.children.length > 0) {
+          const child = obstacleGroup.children.pop()!;
+          if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
+            child.geometry.dispose();
+          }
+        }
+        const obs = getObstaclesForPreset(presetId, hasBarrier, isGlass);
+        for (const ob of obs) {
+          const geo = new THREE.BoxGeometry(ob.hx * 2, ob.hy * 2, ob.hz * 2);
+          const mesh = new THREE.Mesh(geo, obstacleMat);
+          mesh.position.set(ob.cx, ob.cy, ob.cz);
+          mesh.rotation.z = ob.angleZ;
+          obstacleGroup.add(mesh);
+
+          const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), obstacleEdgeMat);
+          edges.position.copy(mesh.position);
+          edges.rotation.z = ob.angleZ;
+          obstacleGroup.add(edges);
+        }
+      };
 
       const sphereGeo = new THREE.SphereGeometry(1, 10, 8);
       const sphereMat = new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.05 });
@@ -479,6 +544,8 @@ export const SandWaterViewport: React.FC = () => {
         new THREE.Color('#d97706'),
         new THREE.Color('#ca8a04'),
       ];
+      const oilColor = new THREE.Color('#a3e635');
+      const ferroColor = new THREE.Color('#475569');
       let lastCpuCamReset = stCpuInit.cameraResetNonce;
       let frameTicker = 0;
 
@@ -499,8 +566,8 @@ export const SandWaterViewport: React.FC = () => {
           st.fluidTool === 'orbit' ? THREE.MOUSE.ROTATE : null;
         controls.enableRotate = st.fluidTool === 'orbit' || !cpuPointerActive;
 
-        if (cpuPointerActive && (st.fluidTool === 'pour-water' || st.fluidTool === 'pour-sand')) {
-          const kind = st.fluidTool === 'pour-water' ? 'water' : 'sand';
+        const cpuPourKind = cpuPointerActive ? toolToPourKind(st.fluidTool) : null;
+        if (cpuPourKind) {
           let sx = cpuCurHit.x;
           let sz = cpuCurHit.z;
           const sy = Math.max(0.6, Math.min(6.0, cpuCurHit.y));
@@ -519,19 +586,40 @@ export const SandWaterViewport: React.FC = () => {
             cpuSpawnSeq += 1;
             const jx = Math.sin(cpuSpawnSeq * 3.1) * 0.2;
             const jz = Math.cos(cpuSpawnSeq * 5.7) * 0.2;
-            spawnMacroParticle(sim, kind, sx + jx, sy + (k % 2) * 0.08, sz + jz, jx * 1.5, -2.0, jz * 1.5);
+            spawnMacroParticle(
+              sim,
+              cpuPourKind,
+              sx + jx,
+              sy + (k % 2) * 0.08,
+              sz + jz,
+              jx * 1.5,
+              -2.0,
+              jz * 1.5,
+            );
           }
         } else if (!st.fluidConfig.paused && st.fluidAutoPourKind !== 'none') {
+          const faucetX =
+            !isGlass && st.fluidPresetId === 'cascade-maze' ? -3.5 : 0;
           for (let k = 0; k < 5; k++) {
             cpuSpawnSeq += 1;
             const jx = Math.sin(cpuSpawnSeq * 2.9) * 0.18;
             const jz = Math.cos(cpuSpawnSeq * 4.3) * 0.18;
-            spawnMacroParticle(sim, st.fluidAutoPourKind, jx, 5.6, jz, jx * 1.4, -2.2, jz * 1.4);
+            spawnMacroParticle(
+              sim,
+              st.fluidAutoPourKind,
+              faucetX + jx,
+              5.8,
+              jz,
+              jx * 1.4,
+              -2.2,
+              jz * 1.4,
+            );
           }
         }
 
         const stirImpulse: StirImpulse = {
-          active: cpuPointerActive && st.fluidTool === 'stir',
+          active: cpuPointerActive && (st.fluidTool === 'stir' || st.fluidTool === 'magnet'),
+          mode: st.fluidTool === 'magnet' ? 'magnet' : 'stir',
           x: cpuCurHit.x,
           y: cpuCurHit.y,
           z: cpuCurHit.z,
@@ -542,24 +630,46 @@ export const SandWaterViewport: React.FC = () => {
         };
         cpuStirVel.multiplyScalar(0.72);
 
+        const activeObs = getObstaclesForPreset(
+          st.fluidPresetId,
+          st.fluidConfig.hasObstacle,
+          isGlass,
+        );
+        syncCpuObstacles(st.fluidPresetId, st.fluidConfig.hasObstacle, isGlass);
         stepSandWaterSimulation(
           sim,
           { ...st.fluidConfig, isGlassMode: isGlass },
           1 / 60,
           stirImpulse,
+          activeObs,
         );
         tankLine.visible = !isGlass;
         glassLine.visible = isGlass;
-        obstacleMesh.visible = !isGlass && st.fluidConfig.hasObstacle;
 
         particleMesh.count = sim.count;
         for (let i = 0; i < sim.count; i++) {
-          const isWater = sim.kinds[i] === 0;
+          const kind = sim.kinds[i]!;
           dummy.position.set(sim.px[i]!, sim.py[i]!, sim.pz[i]!);
-          dummy.scale.setScalar(isWater ? WATER_RADIUS * 1.28 : SAND_RADIUS * 1.02);
+          const rScale =
+            kind === 0
+              ? WATER_RADIUS * 1.28
+              : kind === 1
+                ? SAND_RADIUS * 1.02
+                : kind === 2
+                  ? OIL_RADIUS * 1.22
+                  : FERRO_RADIUS * 1.08;
+          dummy.scale.setScalar(rScale);
           dummy.updateMatrix();
           particleMesh.setMatrixAt(i, dummy.matrix);
-          particleMesh.setColorAt(i, isWater ? waterColor : sandColors[i & 3]!);
+          const col =
+            kind === 0
+              ? waterColor
+              : kind === 1
+                ? sandColors[i & 3]!
+                : kind === 2
+                  ? oilColor
+                  : ferroColor;
+          particleMesh.setColorAt(i, col);
         }
         particleMesh.instanceMatrix.needsUpdate = true;
         if (particleMesh.instanceColor) particleMesh.instanceColor.needsUpdate = true;
@@ -606,7 +716,7 @@ export const SandWaterViewport: React.FC = () => {
         ...DEFAULT_GLASS_CONTAINER,
         isGlassMode: isGlass,
       };
-      gpu.updateContainerMesh(gpuContainer, fluidConfig.hasObstacle);
+      gpu.updateContainerMesh(gpuContainer, fluidPresetId, fluidConfig.hasObstacle);
       const data = generateGpuPresetParticles(
         fluidPresetId,
         isGlass,
@@ -616,6 +726,8 @@ export const SandWaterViewport: React.FC = () => {
       useLabStore.getState().setFluidStats({
         waterCount: gpu.waterCount,
         sandCount: gpu.sandCount,
+        oilCount: gpu.oilCount,
+        ferroCount: gpu.ferroCount,
         avgSandY: 0,
         avgWaterY: 0,
         kineticEnergy: 0,
@@ -631,6 +743,17 @@ export const SandWaterViewport: React.FC = () => {
   }, [fluidPresetId, fluidContainerMode, fluidTargetParticleCount, fluidResetNonce, backendMode]);
 
   useEffect(() => {
+    const gpu = gpuEngineRef.current;
+    if (!gpu) return;
+    const isGlass = fluidContainerMode === 'glass';
+    gpu.updateContainerMesh(
+      { ...DEFAULT_GLASS_CONTAINER, isGlassMode: isGlass },
+      fluidPresetId,
+      fluidConfig.hasObstacle,
+    );
+  }, [fluidConfig.hasObstacle, fluidPresetId, fluidContainerMode]);
+
+  useEffect(() => {
     if (fluidClearNonce === 0) return;
     const gpu = gpuEngineRef.current;
     if (gpu) {
@@ -638,6 +761,8 @@ export const SandWaterViewport: React.FC = () => {
       useLabStore.getState().setFluidStats({
         waterCount: 0,
         sandCount: 0,
+        oilCount: 0,
+        ferroCount: 0,
         avgSandY: 0,
         avgWaterY: 0,
         kineticEnergy: 0,
@@ -692,17 +817,23 @@ export const SandWaterViewport: React.FC = () => {
               ? 'Pour Water (click/drag)'
               : fluidTool === 'pour-sand'
                 ? 'Pour Sand (click/drag)'
-                : fluidTool === 'stir'
-                  ? 'Stir / Push (drag)'
-                  : 'Orbit Camera'}
+                : fluidTool === 'pour-oil'
+                  ? 'Pour Oil (click/drag)'
+                  : fluidTool === 'pour-ferro'
+                    ? 'Pour Ferrofluid (click/drag)'
+                    : fluidTool === 'magnet'
+                      ? 'Magnet (drag to pull Ferrofluid)'
+                      : fluidTool === 'stir'
+                        ? 'Stir / Push (drag)'
+                        : 'Orbit Camera'}
             {fluidConfig.paused ? ' · PAUSED' : ''}
           </span>
         </div>
 
         <div className="viewport-hud-top-right">
           <span className="hud-pill hud-pill-mode">
-            {fluidContainerMode === 'glass' ? '3D Glass' : 'Lab Tank'} · Cyan: Water (ρ=1.0) ·
-            Gold: Sand (ρ=2.4)
+            {fluidContainerMode === 'glass' ? '3D Glass' : 'Lab Tank'} · Water (1.0) · Oil (0.72)
+            · Sand (2.4) · Ferro (3.2)
           </span>
         </div>
       </div>
