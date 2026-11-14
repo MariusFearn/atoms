@@ -1,0 +1,25 @@
+{
+  "name": "matterlab",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MatterLab — Interactive 3D scientific physics and chemistry sandbox",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=@matterlab/web run dev",
+    "build": "npm --workspace=@matterlab/domain run build && npm --workspace=@matterlab/web run build",
+    "test": "npm --workspace=@matterlab/domain run test && npm --workspace=@matterlab/web run test",
+    "typecheck": "npm --workspace=@matterlab/domain run typecheck && npm --workspace=@matterlab/web run typecheck",
+    "lint": "eslint packages apps"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^22.15.0",
+    "eslint": "^9.39.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.34.0",
+    "vitest": "^3.1.3"
+  }
+}
