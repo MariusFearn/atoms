@@ -145,6 +145,11 @@ export const LabSceneViewport: React.FC = () => {
   const [pixelPerAngstrom, setPixelPerAngstrom] = useState<number>(64);
 
   const molecule = useLabStore((s) => s.molecule);
+  const workspaceTab = useLabStore((s) => s.workspaceTab);
+  const activeResults = useLabStore((s) => s.activeResults);
+  const activeJob = useLabStore((s) => s.activeJob);
+  const experimentStartingMolecule = useLabStore((s) => s.experimentStartingMolecule);
+  const playbackFrameIndex = useLabStore((s) => s.playbackFrameIndex);
   const activeTool = useLabStore((s) => s.activeTool);
   const activeElement = useLabStore((s) => s.activeElement);
   const selectedAtomIds = useLabStore((s) => s.selectedAtomIds);
@@ -160,6 +165,35 @@ export const LabSceneViewport: React.FC = () => {
   const lowEffects = useLabStore((s) => s.lowEffects);
   const cameraResetNonce = useLabStore((s) => s.cameraResetNonce);
   const cameraFitNonce = useLabStore((s) => s.cameraFitNonce);
+
+  const isTrajectoryMode =
+    workspaceTab === 'experiment' &&
+    activeResults !== null &&
+    activeResults.frames.length > 0;
+  const activeFrame = isTrajectoryMode
+    ? (activeResults.frames[playbackFrameIndex] ?? activeResults.frames[0])
+    : undefined;
+
+  const displayMolecule = (() => {
+    if (!isTrajectoryMode || !activeFrame) {
+      return molecule;
+    }
+    const baseMol = experimentStartingMolecule ?? molecule;
+    const posById = new Map<string, [number, number, number]>();
+    activeResults.atomIds.forEach((aid, idx) => {
+      const coords = activeFrame.positionsAngstrom[idx];
+      if (coords) {
+        posById.set(aid, coords);
+      }
+    });
+    return {
+      ...baseMol,
+      atoms: baseMol.atoms.map((a) => ({
+        ...a,
+        positionAngstrom: posById.get(a.id) ?? a.positionAngstrom,
+      })),
+    };
+  })();
 
   const sceneDataRef = useRef<{
     scene: THREE.Scene;
@@ -293,7 +327,7 @@ export const LabSceneViewport: React.FC = () => {
       raycaster.setFromCamera(toNdc(ev.clientX, ev.clientY), ctx.camera);
 
       const store = useLabStore.getState();
-      if (store.activeTool === 'select') {
+      if (store.workspaceTab === 'molecule' && store.activeTool === 'select') {
         const hits = raycaster.intersectObject(ctx.atomMesh, false);
         const firstHit = hits[0];
         if (firstHit && firstHit.instanceId !== undefined) {
@@ -387,12 +421,12 @@ export const LabSceneViewport: React.FC = () => {
           ? ctx.atomIds[atomHits[0].instanceId]
           : undefined;
 
-      if (hitAtomId) {
+      if (hitAtomId && store.workspaceTab === 'molecule') {
         store.handleAtomClickForTool(hitAtomId, ev.shiftKey);
         return;
       }
 
-      if (store.activeTool === 'place-atom') {
+      if (store.workspaceTab === 'molecule' && store.activeTool === 'place-atom') {
         const xzPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const target = new THREE.Vector3();
         if (raycaster.ray.intersectPlane(xzPlane, target)) {
@@ -464,8 +498,24 @@ export const LabSceneViewport: React.FC = () => {
         if (state.showLabels) {
           const nextLabels: ProjectedLabel[] = [];
           const selectedSet = new Set(state.selectedAtomIds);
-          for (const atom of state.molecule.atoms) {
-            tempVec.set(...atom.positionAngstrom);
+          const lblResults =
+            state.workspaceTab === 'experiment' ? state.activeResults : null;
+          const lblFrame = lblResults?.frames[state.playbackFrameIndex];
+          const lblBaseMol =
+            lblResults && lblFrame
+              ? (state.experimentStartingMolecule ?? state.molecule)
+              : state.molecule;
+          const lblPosById = new Map<string, [number, number, number]>();
+          if (lblResults && lblFrame) {
+            lblResults.atomIds.forEach((aid, idx) => {
+              const p = lblFrame.positionsAngstrom[idx];
+              if (p) lblPosById.set(aid, p);
+            });
+          }
+
+          for (const atom of lblBaseMol.atoms) {
+            const pos = lblPosById.get(atom.id) ?? atom.positionAngstrom;
+            tempVec.set(...pos);
             tempVec.project(camera);
             if (tempVec.z >= -1 && tempVec.z <= 1) {
               const x = (tempVec.x * 0.5 + 0.5) * rect.width;
@@ -532,7 +582,7 @@ export const LabSceneViewport: React.FC = () => {
 
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
-    const atoms = molecule.atoms.slice(0, MAX_ATOM_INSTANCES);
+    const atoms = displayMolecule.atoms.slice(0, MAX_ATOM_INSTANCES);
     ctx.atomIds = atoms.map((a) => a.id);
     ctx.atomMesh.count = atoms.length;
 
@@ -573,7 +623,7 @@ export const LabSceneViewport: React.FC = () => {
       ctx.bondMesh.count = 0;
       ctx.bondSegmentIds = [];
     } else {
-      const segments = buildBondSegments(molecule.atoms, molecule.bonds, selectedBondId)
+      const segments = buildBondSegments(displayMolecule.atoms, displayMolecule.bonds, selectedBondId)
         .slice(0, MAX_BOND_INSTANCES);
       ctx.bondSegmentIds = segments.map((s) => s.bondId);
       ctx.bondMesh.count = segments.length;
@@ -650,7 +700,7 @@ export const LabSceneViewport: React.FC = () => {
       ctx.selectionGroup.add(cage);
     }
   }, [
-    molecule,
+    displayMolecule,
     selectedAtomIds,
     selectedBondId,
     pendingBondSourceAtomId,
@@ -733,14 +783,18 @@ export const LabSceneViewport: React.FC = () => {
       <div className="viewport-hud-top">
         <div className="viewport-hud-top-left">
           <span className="hud-pill hud-pill-mode">
-            Static Structure Mode · No Active Simulation
+            {isTrajectoryMode && activeFrame
+              ? `Trajectory Playback · Frame ${playbackFrameIndex + 1}/${activeResults.frames.length} · t = ${activeFrame.simulationTimePs.toFixed(3)} ps`
+              : workspaceTab === 'experiment' && activeJob && (activeJob.status === 'running' || activeJob.status === 'queued')
+                ? `OpenMM Simulation ${activeJob.status} (${Math.round(activeJob.progressFraction * 100)}%)`
+                : 'Static Structure Mode · No Active Simulation'}
           </span>
-          {activeTool === 'place-atom' && (
+          {workspaceTab === 'molecule' && activeTool === 'place-atom' && (
             <span className="hud-pill hud-pill-tool">
               Click grid plane (Y = 0 Å) to place {activeElement}
             </span>
           )}
-          {activeTool === 'bond' && (
+          {workspaceTab === 'molecule' && activeTool === 'bond' && (
             <span className="hud-pill hud-pill-tool">
               {pendingBondSourceAtomId
                 ? `Select second atom to bond with ${pendingBondSourceAtomId}`

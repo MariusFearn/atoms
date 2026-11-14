@@ -1,14 +1,27 @@
-import type { Molecule } from '@matterlab/domain';
+import type {
+  ExperimentConfig,
+  ExperimentJobInfo,
+  ExperimentResults,
+  Molecule,
+  SimulationModelPreset,
+} from '@matterlab/domain';
 import {
   type ApiCapabilitiesResponseDto,
   type ApiConformerResponseDto,
   type ApiErrorPayload,
+  type ApiExperimentJobDto,
+  type ApiExperimentResultsDto,
   type ApiMolExportResponseDto,
   type ApiMolImportResponseDto,
+  type ApiSimulationPresetDto,
   type ApiValidationResponseDto,
   type RdkitConformerResult,
   type RdkitValidationResult,
+  fromApiJobDto,
   fromApiMoleculeDto,
+  fromApiPresetDto,
+  fromApiResultsDto,
+  toApiExperimentRequestDto,
   toApiMoleculeDto,
 } from './contracts.js';
 
@@ -239,4 +252,68 @@ export async function exportMolBlockWithRdkit(
     engineVersion: dto.engine_version,
     warnings: dto.warnings,
   };
+}
+
+export async function listSimulationPresets(
+  options?: ScienceClientOptions,
+): Promise<SimulationModelPreset[]> {
+  const dtos = await requestJson<ApiSimulationPresetDto[]>(
+    '/api/v1/experiments/presets',
+    { method: 'GET' },
+    options,
+  );
+  return dtos.map(fromApiPresetDto);
+}
+
+export async function submitExperimentJob(
+  molecule: Molecule,
+  config: ExperimentConfig,
+  idempotencyKey: string,
+  options?: ScienceClientOptions,
+): Promise<ExperimentJobInfo> {
+  const dto = await requestJson<ApiExperimentJobDto>(
+    '/api/v1/experiments',
+    {
+      method: 'POST',
+      body: JSON.stringify(toApiExperimentRequestDto(molecule, config, idempotencyKey)),
+    },
+    options,
+  );
+  return fromApiJobDto(dto);
+}
+
+export async function getExperimentStatus(
+  jobId: string,
+  options?: ScienceClientOptions,
+): Promise<ExperimentJobInfo> {
+  const dto = await requestJson<ApiExperimentJobDto>(
+    `/api/v1/experiments/${encodeURIComponent(jobId)}`,
+    { method: 'GET' },
+    options,
+  );
+  return fromApiJobDto(dto);
+}
+
+export async function cancelExperimentJob(
+  jobId: string,
+  options?: ScienceClientOptions,
+): Promise<ExperimentJobInfo> {
+  const dto = await requestJson<ApiExperimentJobDto>(
+    `/api/v1/experiments/${encodeURIComponent(jobId)}/cancel`,
+    { method: 'POST' },
+    options,
+  );
+  return fromApiJobDto(dto);
+}
+
+export async function getExperimentResults(
+  jobId: string,
+  options?: ScienceClientOptions,
+): Promise<ExperimentResults> {
+  const dto = await requestJson<ApiExperimentResultsDto>(
+    `/api/v1/experiments/${encodeURIComponent(jobId)}/results`,
+    { method: 'GET' },
+    options,
+  );
+  return fromApiResultsDto(dto);
 }

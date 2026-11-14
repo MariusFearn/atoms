@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import AsyncIterator
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.adapters.openmm.adapter import (
+    OpenMMAdapterError,
+    list_presets as list_openmm_presets,
+    openmm_version,
+)
 from app.adapters.rdkit.adapter import (
     MVP_BASELINE_ELEMENTS,
     RdkitAdapterError,
@@ -12,6 +21,7 @@ from app.adapters.rdkit.adapter import (
     rdkit_version,
     validate_molecule,
 )
+from app.jobs.manager import JobManager
 from app.models.contracts import (
     AdapterCapability,
     ApiErrorDetail,
@@ -19,11 +29,15 @@ from app.models.contracts import (
     ConformerRequest,
     ConformerResponse,
     ElementSummary,
+    ExperimentCreateRequest,
+    ExperimentJobDto,
+    ExperimentResultsDto,
     HealthResponse,
     MolExportRequest,
     MolExportResponse,
     MolImportRequest,
     MolImportResponse,
+    SimulationPresetDto,
     ValidateMoleculeRequest,
     ValidationResponse,
 )
@@ -44,7 +58,7 @@ BASELINE_ELEMENTS: list[ElementSummary] = [
 ]
 
 
-def _raise_http_error(exc: RdkitAdapterError) -> None:
+def _raise_http_error(exc: RdkitAdapterError | OpenMMAdapterError) -> None:
     raise HTTPException(
         status_code=exc.http_status,
         detail=ApiErrorDetail(
@@ -56,12 +70,23 @@ def _raise_http_error(exc: RdkitAdapterError) -> None:
     ) from exc
 
 
-def create_app() -> FastAPI:
+def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
+    job_manager = JobManager(db_path=jobs_db_path)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            job_manager.shutdown(wait=True)
+
     app = FastAPI(
         title="MatterLab Science API",
         version=API_VERSION,
-        description="Typed scientific engine boundary for MatterLab (RDKit enabled).",
+        description="Typed scientific engine boundary for MatterLab (RDKit + OpenMM enabled).",
+        lifespan=lifespan,
     )
+    app.state.job_manager = job_manager
 
     app.add_middleware(
         CORSMiddleware,
@@ -76,7 +101,7 @@ def create_app() -> FastAPI:
             status="ok",
             service="matterlab-science-api",
             version=API_VERSION,
-            mode="rdkit-enabled",
+            mode="rdkit-openmm-enabled",
         )
 
     @app.get("/api/v1/capabilities", response_model=CapabilitiesResponse)
@@ -104,12 +129,18 @@ def create_app() -> FastAPI:
                 ),
                 AdapterCapability(
                     adapter="openmm",
-                    available=False,
-                    version=None,
-                    supported_elements=[],
-                    supported_operations=[],
+                    available=True,
+                    version=openmm_version(),
+                    supported_elements=["H", "O"],
+                    supported_operations=[
+                        "tip3p-water-nvt",
+                        "tip3p-water-nve",
+                        "trajectory_observables",
+                        "job_cancellation",
+                    ],
                     limitations=[
-                        "Classical molecular dynamics via OpenMM is scheduled for Milestone 4."
+                        "Validated presets cover pure TIP3P water clusters (2–64 H2O molecules) under amber14/tip3p.xml.",
+                        "Standard classical force fields use fixed topology and cannot model bond breaking or proton transfer.",
                     ],
                 ),
             ],
@@ -158,6 +189,38 @@ def create_app() -> FastAPI:
         try:
             return import_mol_block(req.mol_text, name=req.name)
         except RdkitAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/experiments/presets", response_model=list[SimulationPresetDto])
+    def get_experiment_presets() -> list[SimulationPresetDto]:
+        return list_openmm_presets()
+
+    @app.post("/api/v1/experiments", response_model=ExperimentJobDto, status_code=202)
+    def post_create_experiment(req: ExperimentCreateRequest) -> ExperimentJobDto:
+        try:
+            return job_manager.submit_experiment(req)
+        except OpenMMAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/experiments/{job_id}", response_model=ExperimentJobDto)
+    def get_experiment_status(job_id: str) -> ExperimentJobDto:
+        try:
+            return job_manager.get_job(job_id)
+        except OpenMMAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.post("/api/v1/experiments/{job_id}/cancel", response_model=ExperimentJobDto)
+    def post_cancel_experiment(job_id: str) -> ExperimentJobDto:
+        try:
+            return job_manager.cancel_job(job_id)
+        except OpenMMAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/experiments/{job_id}/results", response_model=ExperimentResultsDto)
+    def get_experiment_results(job_id: str) -> ExperimentResultsDto:
+        try:
+            return job_manager.get_results(job_id)
+        except OpenMMAdapterError as exc:
             _raise_http_error(exc)
 
     return app

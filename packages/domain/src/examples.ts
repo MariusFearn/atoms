@@ -228,6 +228,71 @@ export const EXAMPLE_MOLECULES: readonly ExampleMoleculeEntry[] = [
       };
     })(),
   },
+  {
+    id: 'water-cluster-8',
+    title: 'Water Cluster (8 H₂O)',
+    formulaLabel: 'H₁₆O₈',
+    description:
+      'Eight-molecule TIP3P water cluster (24 atoms) for classical OpenMM molecular dynamics.',
+    molecule: (() => {
+      const atoms: Molecule['atoms'] = [];
+      const bonds: Molecule['bonds'] = [];
+      let idx = 1;
+      for (let ix = 0; ix < 2; ix++) {
+        for (let iy = 0; iy < 2; iy++) {
+          for (let iz = 0; iz < 2; iz++) {
+            const ox = Number((ix * 3.1 - 1.55).toFixed(4));
+            const oy = Number((iy * 3.1 - 1.55).toFixed(4));
+            const oz = Number((iz * 3.1 - 1.55).toFixed(4));
+            const oId = `O${idx}`;
+            const h1Id = `H${idx * 2 - 1}`;
+            const h2Id = `H${idx * 2}`;
+            atoms.push(
+              {
+                id: oId,
+                element: 'O',
+                positionAngstrom: [ox, oy, oz],
+                formalCharge: 0,
+                aromatic: false,
+              },
+              {
+                id: h1Id,
+                element: 'H',
+                positionAngstrom: [Number((ox + 0.757).toFixed(4)), Number((oy + 0.586).toFixed(4)), oz],
+                formalCharge: 0,
+                aromatic: false,
+              },
+              {
+                id: h2Id,
+                element: 'H',
+                positionAngstrom: [Number((ox - 0.757).toFixed(4)), Number((oy + 0.586).toFixed(4)), oz],
+                formalCharge: 0,
+                aromatic: false,
+              },
+            );
+            bonds.push(
+              { id: `bw${idx}a`, atomA: oId, atomB: h1Id, order: 1 },
+              { id: `bw${idx}b`, atomA: oId, atomB: h2Id, order: 1 },
+            );
+            idx += 1;
+          }
+        }
+      }
+      return {
+        id: 'example-water-cluster-8',
+        name: 'TIP3P Water Cluster (8 H2O)',
+        revisionId: 'example-water-cluster-8-r1',
+        netCharge: 0,
+        provenance: {
+          sourceKind: 'curated-illustrative-reference',
+          summary: 'Curated 8-molecule TIP3P water lattice starter for OpenMM dynamics.',
+          geometryStatus: 'illustrative-reference',
+        },
+        atoms,
+        bonds,
+      };
+    })(),
+  },
 ];
 
 export function cloneMolecule(molecule: Molecule): Molecule {

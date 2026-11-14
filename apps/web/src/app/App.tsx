@@ -6,6 +6,7 @@ import { RightInspector } from '../components/RightInspector';
 import { TopBar } from '../components/TopBar';
 import { LabSceneViewport } from '../scene/LabSceneViewport';
 import { useLabStore } from '../state/useLabStore';
+import { ExperimentWorkspace } from '../workspaces/experiment/ExperimentWorkspace';
 
 interface PendingConfirm {
   title: string;
@@ -88,23 +89,17 @@ export const App: React.FC = () => {
             </section>
             <RightInspector />
           </>
+        ) : workspaceTab === 'experiment' ? (
+          <ExperimentWorkspace onRequestProtectedAction={requestProtectedAction} />
         ) : (
           <section className="deferred-workspace" aria-label="Deferred Workspace">
             <div className="deferred-card">
-              <span className="badge badge-warn">
-                {workspaceTab === 'atom'
-                  ? 'Deferred from MVP (Section 13)'
-                  : 'Scheduled for Milestone 4 (OpenMM)'}
-              </span>
-              <h1>
-                {workspaceTab === 'atom'
-                  ? 'Atom & Orbital Explorer'
-                  : 'Classical Molecular Dynamics Experiment Workspace'}
-              </h1>
+              <span className="badge badge-warn">Deferred from MVP (Section 13)</span>
+              <h1>Atom &amp; Orbital Explorer</h1>
               <p>
-                {workspaceTab === 'atom'
-                  ? 'Atomic orbital probability-density visualizations and curated isotope/orbital datasets are deferred beyond the initial MVP release so that unsupported approximations are never presented as live quantum calculations.'
-                  : 'Molecular dynamics simulations require validated versioned model presets and the OpenMM engine adapter behind the science-api boundary (Milestone 4). Mock physics outputs are deliberately excluded.'}
+                Atomic orbital probability-density visualizations and curated isotope/orbital
+                datasets are deferred beyond the initial MVP release so that unsupported
+                approximations are never presented as live quantum calculations.
               </p>
               <button
                 type="button"

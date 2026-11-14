@@ -172,9 +172,9 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
           type="button"
           className={`tab-btn ${workspaceTab === 'experiment' ? 'is-active' : ''}`}
           onClick={() => setWorkspaceTab('experiment')}
-          title="Scheduled for Milestone 4 (OpenMM)"
+          title="Classical Molecular Dynamics (OpenMM)"
         >
-          Experiment <span className="tab-tag">M4</span>
+          Experiment <span className="tab-tag">OpenMM</span>
         </button>
       </nav>
 

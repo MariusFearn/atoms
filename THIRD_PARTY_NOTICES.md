@@ -16,6 +16,7 @@ This project uses open-source libraries and curated scientific reference dataset
 - **Pydantic** — MIT License
 - **Uvicorn** — BSD-3-Clause License
 - **RDKit** (`rdkit`) — BSD-3-Clause License
+- **OpenMM** (`openmm`, including `amber14/tip3p.xml` force-field parameters) — MIT / LGPL Licenses
 - **NumPy / Pillow** (transitive RDKit dependencies) — BSD-3-Clause / HPND Licenses
 - **pytest / httpx** — MIT / BSD-3-Clause Licenses (dev tooling)
 

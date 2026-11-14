@@ -1,4 +1,14 @@
-import type { Atom, Bond, BondOrder, Molecule } from '@matterlab/domain';
+import type {
+  Atom,
+  Bond,
+  BondOrder,
+  ExperimentConfig,
+  ExperimentJobInfo,
+  ExperimentResults,
+  Molecule,
+  SimulationJobStatus,
+  SimulationModelPreset,
+} from '@matterlab/domain';
 
 export interface ApiErrorPayload {
   code: string;
@@ -236,4 +246,245 @@ export interface RdkitConformerResult {
   assumptions: string[];
   limitations: string[];
   positionsAngstrom: Record<string, [number, number, number]>;
+}
+
+// --- Milestone 4 OpenMM MD API DTOs & Mappers ---
+
+export interface ApiSimulationPresetDto {
+  id: string;
+  version: string;
+  name: string;
+  category: 'molecular-mechanics';
+  engine: 'OpenMM';
+  engine_version: string | null;
+  force_field: string;
+  integrator: string;
+  ensemble: 'NVT' | 'NVE';
+  constraints: string;
+  boundary_conditions: string;
+  supports_thermostat_target: boolean;
+  default_temperature_k: number;
+  default_timestep_fs: number;
+  default_duration_ps: number;
+  limits: {
+    min_water_molecules: number;
+    max_water_molecules: number;
+    min_temperature_k: number;
+    max_temperature_k: number;
+    min_timestep_fs: number;
+    max_timestep_fs: number;
+    min_duration_ps: number;
+    max_duration_ps: number;
+  };
+  assumptions: string[];
+  limitations: string[];
+}
+
+export interface ApiExperimentCreateRequestDto {
+  model_preset_id: string;
+  model_preset_version: string;
+  initial_structure_revision_id: string;
+  molecule: ApiMoleculeInputDto;
+  settings: {
+    temperature: { value: number; unit: 'K' };
+    timestep: { value: number; unit: 'fs' | 'ps' };
+    duration: { value: number; unit: 'fs' | 'ps' };
+    report_interval_steps: number;
+    minimize_before_run: boolean;
+  };
+  random_seed: number;
+  idempotency_key: string;
+}
+
+export interface ApiExperimentJobDto {
+  job_id: string;
+  status: SimulationJobStatus;
+  model_preset_id: string;
+  model_preset_version: string;
+  initial_structure_revision_id: string;
+  progress_fraction: number;
+  completed_steps: number;
+  total_steps: number;
+  frames_recorded: number;
+  created_at_iso: string;
+  updated_at_iso: string;
+  error_code: string | null;
+  error_message: string | null;
+  status_url: string;
+  results_url: string;
+}
+
+export interface ApiTrajectoryFrameDto {
+  frame_index: number;
+  step: number;
+  simulation_time_ps: number;
+  kinetic_energy_kj_mol: number;
+  potential_energy_kj_mol: number;
+  total_energy_kj_mol: number;
+  instantaneous_temperature_k: number;
+  positions_angstrom: Array<[number, number, number]>;
+}
+
+export interface ApiExperimentResultsDto {
+  job_id: string;
+  status: SimulationJobStatus;
+  is_partial: boolean;
+  atom_ids: string[];
+  frames: ApiTrajectoryFrameDto[];
+  reproducibility: {
+    input_structure_revision_id: string;
+    input_structure_hash_sha256: string;
+    model_preset_id: string;
+    model_preset_version: string;
+    force_field_source: string;
+    integrator: string;
+    ensemble: 'NVT' | 'NVE';
+    engine: string;
+    engine_version: string;
+    platform_name: string;
+    numerical_precision: string;
+    random_seed: number;
+    degrees_of_freedom: number;
+    constraints_summary: string;
+    resolved_settings: {
+      temperature_k: number;
+      timestep_fs: number;
+      duration_ps: number;
+      total_steps: number;
+      report_interval_steps: number;
+      minimize_before_run: boolean;
+    };
+    termination_status: SimulationJobStatus;
+    energy_basis: 'mole-of-systems';
+    energy_unit: 'kJ/mol';
+    distance_unit: 'angstrom';
+    time_unit: 'ps';
+    temperature_unit: 'K';
+  };
+  warnings: string[];
+}
+
+export function fromApiPresetDto(dto: ApiSimulationPresetDto): SimulationModelPreset {
+  return {
+    id: dto.id,
+    version: dto.version,
+    name: dto.name,
+    category: dto.category,
+    engine: dto.engine,
+    engineVersion: dto.engine_version,
+    forceField: dto.force_field,
+    integrator: dto.integrator,
+    ensemble: dto.ensemble,
+    constraints: dto.constraints,
+    boundaryConditions: dto.boundary_conditions,
+    supportsThermostatTarget: dto.supports_thermostat_target,
+    defaultTemperatureK: dto.default_temperature_k,
+    defaultTimestepFs: dto.default_timestep_fs,
+    defaultDurationPs: dto.default_duration_ps,
+    limits: {
+      minWaterMolecules: dto.limits.min_water_molecules,
+      maxWaterMolecules: dto.limits.max_water_molecules,
+      minTemperatureK: dto.limits.min_temperature_k,
+      maxTemperatureK: dto.limits.max_temperature_k,
+      minTimestepFs: dto.limits.min_timestep_fs,
+      maxTimestepFs: dto.limits.max_timestep_fs,
+      minDurationPs: dto.limits.min_duration_ps,
+      maxDurationPs: dto.limits.max_duration_ps,
+    },
+    assumptions: dto.assumptions,
+    limitations: dto.limitations,
+  };
+}
+
+export function toApiExperimentRequestDto(
+  molecule: Molecule,
+  config: ExperimentConfig,
+  idempotencyKey: string,
+): ApiExperimentCreateRequestDto {
+  return {
+    model_preset_id: config.modelPresetId,
+    model_preset_version: config.modelPresetVersion,
+    initial_structure_revision_id: config.initialStructureRevisionId,
+    molecule: toApiMoleculeDto(molecule),
+    settings: {
+      temperature: { value: config.temperature.value, unit: config.temperature.unit },
+      timestep: { value: config.timestep.value, unit: config.timestep.unit },
+      duration: { value: config.duration.value, unit: config.duration.unit },
+      report_interval_steps: config.reportIntervalSteps,
+      minimize_before_run: config.minimizeBeforeRun,
+    },
+    random_seed: config.randomSeed,
+    idempotency_key: idempotencyKey,
+  };
+}
+
+export function fromApiJobDto(dto: ApiExperimentJobDto): ExperimentJobInfo {
+  return {
+    jobId: dto.job_id,
+    status: dto.status,
+    modelPresetId: dto.model_preset_id,
+    modelPresetVersion: dto.model_preset_version,
+    initialStructureRevisionId: dto.initial_structure_revision_id,
+    progressFraction: dto.progress_fraction,
+    completedSteps: dto.completed_steps,
+    totalSteps: dto.total_steps,
+    framesRecorded: dto.frames_recorded,
+    createdAtIso: dto.created_at_iso,
+    updatedAtIso: dto.updated_at_iso,
+    errorCode: dto.error_code,
+    errorMessage: dto.error_message,
+    statusUrl: dto.status_url,
+    resultsUrl: dto.results_url,
+  };
+}
+
+export function fromApiResultsDto(dto: ApiExperimentResultsDto): ExperimentResults {
+  const rep = dto.reproducibility;
+  return {
+    jobId: dto.job_id,
+    status: dto.status,
+    isPartial: dto.is_partial,
+    atomIds: dto.atom_ids,
+    frames: dto.frames.map((f) => ({
+      frameIndex: f.frame_index,
+      step: f.step,
+      simulationTimePs: f.simulation_time_ps,
+      kineticEnergyKjMol: f.kinetic_energy_kj_mol,
+      potentialEnergyKjMol: f.potential_energy_kj_mol,
+      totalEnergyKjMol: f.total_energy_kj_mol,
+      instantaneousTemperatureK: f.instantaneous_temperature_k,
+      positionsAngstrom: f.positions_angstrom,
+    })),
+    reproducibility: {
+      inputStructureRevisionId: rep.input_structure_revision_id,
+      inputStructureHashSha256: rep.input_structure_hash_sha256,
+      modelPresetId: rep.model_preset_id,
+      modelPresetVersion: rep.model_preset_version,
+      forceFieldSource: rep.force_field_source,
+      integrator: rep.integrator,
+      ensemble: rep.ensemble,
+      engine: rep.engine,
+      engineVersion: rep.engine_version,
+      platformName: rep.platform_name,
+      numericalPrecision: rep.numerical_precision,
+      randomSeed: rep.random_seed,
+      degreesOfFreedom: rep.degrees_of_freedom,
+      constraintsSummary: rep.constraints_summary,
+      resolvedSettings: {
+        temperatureK: rep.resolved_settings.temperature_k,
+        timestepFs: rep.resolved_settings.timestep_fs,
+        durationPs: rep.resolved_settings.duration_ps,
+        totalSteps: rep.resolved_settings.total_steps,
+        reportIntervalSteps: rep.resolved_settings.report_interval_steps,
+        minimizeBeforeRun: rep.resolved_settings.minimize_before_run,
+      },
+      terminationStatus: rep.termination_status,
+      energyBasis: rep.energy_basis,
+      energyUnit: rep.energy_unit,
+      distanceUnit: rep.distance_unit,
+      timeUnit: rep.time_unit,
+      temperatureUnit: rep.temperature_unit,
+    },
+    warnings: dto.warnings,
+  };
 }

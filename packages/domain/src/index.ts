@@ -3,3 +3,4 @@ export * from './elements.js';
 export * from './models.js';
 export * from './examples.js';
 export * from './persistence.js';
+export * from './simulation.js';

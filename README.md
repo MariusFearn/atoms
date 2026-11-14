@@ -6,18 +6,19 @@ See [MatterLab_Project_Specification.md](./MatterLab_Project_Specification.md) f
 
 ## Current Milestone Status
 
-This workspace implements **Milestones 0–3** (3D molecule editor, typed domain/client contracts, and RDKit cheminformatics integration via the `uv`-managed Python science service):
+This workspace implements **Milestones 0–4** (3D molecule editor, typed domain/client contracts, RDKit cheminformatics, and OpenMM classical molecular dynamics via the root `uv`-managed Python service):
 
 - **Web Application (`apps/web`)**: React 19 + TypeScript + Vite + Three.js (WebGL2 instanced rendering) + Zustand.
   - Interactive 3D viewport with camera orbit, pan, zoom, reset, and fit-to-scene.
-  - Explicit visual disclosures: `"Static Structure Mode · No Active Simulation"` and `"Visual representation — not to scale"`.
+  - Explicit visual disclosures: `"Static Structure Mode · No Active Simulation"`, `"Trajectory Playback · Frame ..."`, and `"Visual representation — not to scale"`.
   - Ball-and-stick and Space-filling (Bondi/Mantina van der Waals) representations, CPK and Colorblind-safe palettes.
   - Element palette for the approved MVP chemistry baseline (`H, C, N, O, F, P, S, Cl, Br, I`).
   - Atom placement, 3D drag or keyboard coordinate editing (Å), explicit single/double/triple/aromatic bond creation, undo/redo, and local `.matterlab.json` project save/open.
-  - Curated reference examples: Water (`H₂O`), Carbon Dioxide (`CO₂`), Methane (`CH₄`), and Benzene (`C₆H₆`).
+  - Curated reference examples: Water (`H₂O`), Carbon Dioxide (`CO₂`), Methane (`CH₄`), Benzene (`C₆H₆`), and Water Cluster (`8 H₂O`) for OpenMM dynamics.
   - RDKit validation & molecular descriptors, ETKDGv3 conformer generation (explicitly labeled as generated and not energy-minimized), and single-structure MOL/SDF import/export when `science-api` is running.
-- **Domain & Client Packages (`packages/domain`, `packages/simulation-client`)**: Typed `Quantity` units and conversions, IUPAC/NIST/Cordero/Bondi reference element data, explicit-atom formula calculation, structural integrity checks, provisional valence validation, versioned JSON project persistence (`matterlab.project.v1`), and typed `snake_case` <-> `camelCase` API boundary mapping.
-- **Science API Service (`services/science-api`)**: Python FastAPI service managed via a root `uv` workspace ([pyproject.toml](./pyproject.toml) + [uv.lock](./uv.lock) + root `.venv`) and **RDKit** (`rdkit`), providing `/api/v1/health`, `/api/v1/capabilities`, `/api/v1/elements`, `/api/v1/molecules/validate`, `/api/v1/molecules/conformers`, `/api/v1/molecules/import/mol`, and `/api/v1/molecules/export/mol` while honestly reporting OpenMM (Milestone 4) as unavailable.
+  - **Experiment Workspace (OpenMM)**: Versioned `tip3p-water-nvt` (Langevin NVT) and `tip3p-water-nve` (Verlet NVE) presets, background job execution with cancellation & reconnect, trajectory playback controls separated from engine computation, live SVG energy/temperature chart + accessible data table, and JSON/CSV reproducibility export.
+- **Domain & Client Packages (`packages/domain`, `packages/simulation-client`)**: Typed `Quantity` units and conversions, IUPAC/NIST/Cordero/Bondi reference element data, explicit-atom formula calculation, structural integrity checks, provisional valence validation, MD preset/job/trajectory models, versioned JSON project persistence (`matterlab.project.v1`), and typed `snake_case` <-> `camelCase` API boundary mapping.
+- **Science API Service (`services/science-api`)**: Python FastAPI service managed via the root `uv` workspace ([pyproject.toml](./pyproject.toml) + [uv.lock](./uv.lock) + root `.venv`) with **RDKit** (`rdkit`) and **OpenMM** (`openmm`), exposing validation/conformer/MOL routes plus persistent SQLite-backed OpenMM experiment endpoints (`/api/v1/experiments/*`).
 
 ## Prerequisites
 

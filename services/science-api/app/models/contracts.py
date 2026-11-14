@@ -19,7 +19,7 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     service: str
     version: str
-    mode: Literal["rdkit-enabled", "prototype-scaffold"]
+    mode: Literal["rdkit-openmm-enabled", "rdkit-enabled", "prototype-scaffold"]
 
 
 class AdapterCapability(BaseModel):
@@ -171,4 +171,163 @@ class MolExportResponse(BaseModel):
     engine_version: str
     format: Literal["mol-v2000"]
     mol_block: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+# --- Milestone 4: OpenMM Molecular Dynamics Contracts ---
+
+JobStatusLiteral = Literal[
+    "queued",
+    "running",
+    "cancelling",
+    "cancelled",
+    "completed",
+    "failed",
+    "interrupted",
+]
+
+
+class PresetParameterLimits(BaseModel):
+    min_water_molecules: int
+    max_water_molecules: int
+    min_temperature_k: float
+    max_temperature_k: float
+    min_timestep_fs: float
+    max_timestep_fs: float
+    min_duration_ps: float
+    max_duration_ps: float
+
+
+class SimulationPresetDto(BaseModel):
+    id: str
+    version: str
+    name: str
+    category: Literal["molecular-mechanics"]
+    engine: Literal["OpenMM"]
+    engine_version: str | None
+    force_field: str
+    integrator: str
+    ensemble: Literal["NVT", "NVE"]
+    constraints: str
+    boundary_conditions: str
+    supports_thermostat_target: bool
+    default_temperature_k: float
+    default_timestep_fs: float
+    default_duration_ps: float
+    limits: PresetParameterLimits
+    assumptions: list[str]
+    limitations: list[str]
+
+
+class TemperatureQuantityInput(BaseModel):
+    value: float
+    unit: Literal["K"]
+
+    @field_validator("value")
+    @classmethod
+    def check_finite_non_negative(cls, v: float) -> float:
+        if not math.isfinite(v) or v < 0:
+            raise ValueError("Temperature in Kelvin must be finite and non-negative.")
+        return v
+
+
+class TimeQuantityInput(BaseModel):
+    value: float
+    unit: Literal["fs", "ps"]
+
+    @field_validator("value")
+    @classmethod
+    def check_finite_positive(cls, v: float) -> float:
+        if not math.isfinite(v) or v <= 0:
+            raise ValueError("Time quantity must be finite and positive.")
+        return v
+
+
+class ExperimentSettingsInput(BaseModel):
+    temperature: TemperatureQuantityInput
+    timestep: TimeQuantityInput
+    duration: TimeQuantityInput
+    report_interval_steps: int = Field(default=20, ge=1, le=5000)
+    minimize_before_run: bool = True
+
+
+class ExperimentCreateRequest(BaseModel):
+    model_preset_id: str = Field(min_length=1)
+    model_preset_version: str = Field(min_length=1)
+    initial_structure_revision_id: str = Field(min_length=1)
+    molecule: MoleculeInput
+    settings: ExperimentSettingsInput
+    random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class ExperimentJobDto(BaseModel):
+    job_id: str
+    status: JobStatusLiteral
+    model_preset_id: str
+    model_preset_version: str
+    initial_structure_revision_id: str
+    progress_fraction: float
+    completed_steps: int
+    total_steps: int
+    frames_recorded: int
+    created_at_iso: str
+    updated_at_iso: str
+    error_code: str | None = None
+    error_message: str | None = None
+    status_url: str
+    results_url: str
+
+
+class TrajectoryFrameDto(BaseModel):
+    frame_index: int
+    step: int
+    simulation_time_ps: float
+    kinetic_energy_kj_mol: float
+    potential_energy_kj_mol: float
+    total_energy_kj_mol: float
+    instantaneous_temperature_k: float
+    positions_angstrom: list[tuple[float, float, float]]
+
+
+class ResolvedExperimentSettingsDto(BaseModel):
+    temperature_k: float
+    timestep_fs: float
+    duration_ps: float
+    total_steps: int
+    report_interval_steps: int
+    minimize_before_run: bool
+
+
+class ReproducibilityRecordDto(BaseModel):
+    input_structure_revision_id: str
+    input_structure_hash_sha256: str
+    model_preset_id: str
+    model_preset_version: str
+    force_field_source: str
+    integrator: str
+    ensemble: Literal["NVT", "NVE"]
+    engine: str
+    engine_version: str
+    platform_name: str
+    numerical_precision: str
+    random_seed: int
+    degrees_of_freedom: int
+    constraints_summary: str
+    resolved_settings: ResolvedExperimentSettingsDto
+    termination_status: JobStatusLiteral
+    energy_basis: Literal["mole-of-systems"]
+    energy_unit: Literal["kJ/mol"]
+    distance_unit: Literal["angstrom"]
+    time_unit: Literal["ps"]
+    temperature_unit: Literal["K"]
+
+
+class ExperimentResultsDto(BaseModel):
+    job_id: str
+    status: JobStatusLiteral
+    is_partial: bool
+    atom_ids: list[str]
+    frames: list[TrajectoryFrameDto]
+    reproducibility: ReproducibilityRecordDto
     warnings: list[str] = Field(default_factory=list)

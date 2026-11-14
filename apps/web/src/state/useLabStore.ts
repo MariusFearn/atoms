@@ -4,10 +4,14 @@ import {
   type BondOrder,
   type ColorPaletteMode,
   EXAMPLE_MOLECULES,
+  type ExperimentConfig,
+  type ExperimentJobInfo,
+  type ExperimentResults,
   type Molecule,
   PROJECT_SCHEMA_VERSION,
   type ProjectFileV1,
   type RepresentationMode,
+  type SimulationModelPreset,
   type StructureValidationReport,
   bondPairKey,
   cloneMolecule,
@@ -20,10 +24,15 @@ import {
   type RdkitConformerResult,
   type RdkitValidationResult,
   ScienceApiError,
+  cancelExperimentJob,
   exportMolBlockWithRdkit,
   fetchCapabilities,
   generateConformerWithRdkit,
+  getExperimentResults,
+  getExperimentStatus,
   importMolBlockWithRdkit,
+  listSimulationPresets,
+  submitExperimentJob,
   validateMoleculeWithRdkit,
 } from '@matterlab/simulation-client';
 
@@ -36,6 +45,7 @@ export interface ServiceStatusState {
   rdkitAvailable: boolean;
   rdkitVersion: string | null;
   openmmAvailable: boolean;
+  openmmVersion: string | null;
   detail: string;
 }
 
@@ -76,6 +86,15 @@ export interface LabState {
   cameraFitNonce: number;
   statusBanner: { kind: 'info' | 'warning' | 'error'; message: string } | null;
   serviceStatus: ServiceStatusState;
+
+  simulationPresets: SimulationModelPreset[];
+  experimentConfig: ExperimentConfig;
+  experimentStartingMolecule: Molecule | null;
+  activeJob: ExperimentJobInfo | null;
+  activeResults: ExperimentResults | null;
+  experimentConnectionLost: boolean;
+  playbackFrameIndex: number;
+  isPlayingTrajectory: boolean;
 
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setProjectName: (name: string) => void;
@@ -131,6 +150,25 @@ export interface LabState {
   runRdkitConformer: (randomSeed?: number) => Promise<boolean>;
   importMolFile: (molText: string, name?: string) => Promise<boolean>;
   exportMolFile: () => Promise<{ molBlock: string; suggestedName: string } | null>;
+
+  loadSimulationPresets: () => Promise<void>;
+  selectSimulationPreset: (presetId: string) => void;
+  updateExperimentConfig: (patch: {
+    temperatureK?: number;
+    timestepFs?: number;
+    durationPs?: number;
+    reportIntervalSteps?: number;
+    randomSeed?: number;
+    minimizeBeforeRun?: boolean;
+  }) => void;
+  runExperiment: () => Promise<void>;
+  cancelActiveExperiment: () => Promise<void>;
+  reconnectActiveExperiment: () => Promise<void>;
+  resetExperimentInputs: () => void;
+  setPlaybackFrameIndex: (index: number) => void;
+  stepTrajectory: (delta: number) => void;
+  toggleTrajectoryPlayback: () => void;
+  resetTrajectoryPlayback: () => void;
 }
 
 let revisionCounter = 1;
@@ -214,6 +252,27 @@ function withUserMutation(
 
 const initialWater = cloneMolecule(EXAMPLE_MOLECULES[0]!.molecule);
 
+const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
+  modelPresetId: 'tip3p-water-nvt',
+  modelPresetVersion: '1',
+  initialStructureRevisionId: initialWater.revisionId,
+  temperature: { dimension: 'temperature', unit: 'K', value: 300 },
+  timestep: { dimension: 'time', unit: 'fs', value: 1.0 },
+  duration: { dimension: 'time', unit: 'ps', value: 2.0 },
+  reportIntervalSteps: 40,
+  randomSeed: 42,
+  minimizeBeforeRun: true,
+};
+
+let activePollTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearActivePollTimer(): void {
+  if (activePollTimer !== null) {
+    clearTimeout(activePollTimer);
+    activePollTimer = null;
+  }
+}
+
 export const useLabStore = create<LabState>((set, get) => ({
   projectName: 'Water Reference',
   workspaceTab: 'molecule',
@@ -251,8 +310,18 @@ export const useLabStore = create<LabState>((set, get) => ({
     rdkitAvailable: false,
     rdkitVersion: null,
     openmmAvailable: false,
+    openmmVersion: null,
     detail: 'Connecting to optional local science-api.',
   },
+
+  simulationPresets: [],
+  experimentConfig: DEFAULT_EXPERIMENT_CONFIG,
+  experimentStartingMolecule: null,
+  activeJob: null,
+  activeResults: null,
+  experimentConnectionLost: false,
+  playbackFrameIndex: 0,
+  isPlayingTrajectory: false,
 
   setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   setProjectName: (projectName) => set({ projectName, hasUnsavedChanges: true }),
@@ -658,20 +727,27 @@ export const useLabStore = create<LabState>((set, get) => ({
       const openmm = data.adapters.find((a) => a.adapter === 'openmm');
       const rdkitAvailable = rdkit?.available ?? false;
       const openmmAvailable = openmm?.available ?? false;
+      const parts: string[] = [`Science API v${data.api_version}`];
+      if (rdkitAvailable) parts.push(`RDKit ${rdkit?.version ?? ''}`.trim());
+      if (openmmAvailable) parts.push(`OpenMM ${openmm?.version ?? ''}`.trim());
       set({
         serviceStatus: {
           state: 'connected',
-          modeLabel: rdkitAvailable
-            ? `Science API v${data.api_version} · RDKit ${rdkit?.version ?? ''}`.trim()
-            : `Science API v${data.api_version} connected`,
+          modeLabel: parts.join(' · '),
           rdkitAvailable,
           rdkitVersion: rdkit?.version ?? null,
           openmmAvailable,
-          detail: rdkitAvailable
-            ? 'RDKit validation, descriptors, ETKDGv3 conformers, and MOL interchange ready.'
-            : 'Service connected without RDKit enabled.',
+          openmmVersion: openmm?.version ?? null,
+          detail: openmmAvailable
+            ? 'RDKit cheminformatics and OpenMM molecular dynamics ready.'
+            : rdkitAvailable
+              ? 'RDKit validation, descriptors, ETKDGv3 conformers, and MOL interchange ready.'
+              : 'Service connected.',
         },
       });
+      if (openmmAvailable) {
+        await get().loadSimulationPresets();
+      }
     } catch {
       set({
         serviceStatus: {
@@ -680,8 +756,9 @@ export const useLabStore = create<LabState>((set, get) => ({
           rdkitAvailable: false,
           rdkitVersion: null,
           openmmAvailable: false,
+          openmmVersion: null,
           detail:
-            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit validation, conformers, and MOL interchange are disabled.',
+            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit and OpenMM actions are disabled.',
         },
       });
     }
@@ -728,6 +805,7 @@ export const useLabStore = create<LabState>((set, get) => ({
             rdkitAvailable: false,
             rdkitVersion: null,
             openmmAvailable: false,
+            openmmVersion: null,
             detail:
               'Lost connection to Science API. Local editing and JSON save/load remain available.',
           },
@@ -879,4 +957,323 @@ export const useLabStore = create<LabState>((set, get) => ({
       return null;
     }
   },
+
+  loadSimulationPresets: async () => {
+    try {
+      const presets = await listSimulationPresets();
+      set((state) => {
+        const selected =
+          presets.find((p) => p.id === state.experimentConfig.modelPresetId) ?? presets[0];
+        if (!selected) return { simulationPresets: presets };
+        return {
+          simulationPresets: presets,
+          experimentConfig: {
+            ...state.experimentConfig,
+            modelPresetId: selected.id,
+            modelPresetVersion: selected.version,
+          },
+        };
+      });
+    } catch {
+      // Presets remain empty when offline
+    }
+  },
+
+  selectSimulationPreset: (presetId) =>
+    set((state) => {
+      const preset = state.simulationPresets.find((p) => p.id === presetId);
+      if (!preset) return {};
+      return {
+        experimentConfig: {
+          ...state.experimentConfig,
+          modelPresetId: preset.id,
+          modelPresetVersion: preset.version,
+          temperature: {
+            dimension: 'temperature',
+            unit: 'K',
+            value: preset.defaultTemperatureK,
+          },
+          timestep: {
+            dimension: 'time',
+            unit: 'fs',
+            value: preset.defaultTimestepFs,
+          },
+          duration: {
+            dimension: 'time',
+            unit: 'ps',
+            value: preset.defaultDurationPs,
+          },
+        },
+      };
+    }),
+
+  updateExperimentConfig: (patch) =>
+    set((state) => ({
+      experimentConfig: {
+        ...state.experimentConfig,
+        ...(patch.temperatureK !== undefined && Number.isFinite(patch.temperatureK)
+          ? {
+              temperature: {
+                dimension: 'temperature',
+                unit: 'K',
+                value: patch.temperatureK,
+              },
+            }
+          : {}),
+        ...(patch.timestepFs !== undefined && Number.isFinite(patch.timestepFs)
+          ? {
+              timestep: {
+                dimension: 'time',
+                unit: 'fs',
+                value: patch.timestepFs,
+              },
+            }
+          : {}),
+        ...(patch.durationPs !== undefined && Number.isFinite(patch.durationPs)
+          ? {
+              duration: {
+                dimension: 'time',
+                unit: 'ps',
+                value: patch.durationPs,
+              },
+            }
+          : {}),
+        ...(patch.reportIntervalSteps !== undefined &&
+        Number.isInteger(patch.reportIntervalSteps) &&
+        patch.reportIntervalSteps >= 1
+          ? { reportIntervalSteps: patch.reportIntervalSteps }
+          : {}),
+        ...(patch.randomSeed !== undefined && Number.isInteger(patch.randomSeed)
+          ? { randomSeed: patch.randomSeed }
+          : {}),
+        ...(patch.minimizeBeforeRun !== undefined
+          ? { minimizeBeforeRun: patch.minimizeBeforeRun }
+          : {}),
+      },
+    })),
+
+  runExperiment: async () => {
+    clearActivePollTimer();
+    const state = get();
+    const submittedMolecule = cloneMolecule(state.molecule);
+    const config: ExperimentConfig = {
+      ...state.experimentConfig,
+      initialStructureRevisionId: submittedMolecule.revisionId,
+    };
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `exp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    set({
+      isScienceBusy: true,
+      experimentConnectionLost: false,
+      experimentStartingMolecule: submittedMolecule,
+      experimentConfig: config,
+      isPlayingTrajectory: false,
+      playbackFrameIndex: 0,
+    });
+
+    const pollJob = async (jobId: string) => {
+      try {
+        const job = await getExperimentStatus(jobId);
+        set({ activeJob: job, experimentConnectionLost: false });
+
+        if (job.framesRecorded > 0) {
+          const partialOrFull = await getExperimentResults(jobId);
+          set({ activeResults: partialOrFull });
+        }
+
+        if (job.status === 'queued' || job.status === 'running' || job.status === 'cancelling') {
+          activePollTimer = setTimeout(() => {
+            void pollJob(jobId);
+          }, 250);
+          return;
+        }
+
+        const finalResults = await getExperimentResults(jobId);
+        set({
+          isScienceBusy: false,
+          activeJob: job,
+          activeResults: finalResults,
+          statusBanner: {
+            kind:
+              job.status === 'completed'
+                ? 'info'
+                : job.status === 'cancelled'
+                  ? 'warning'
+                  : 'error',
+            message:
+              job.status === 'completed'
+                ? `OpenMM simulation completed (${finalResults.frames.length} frames, ${finalResults.reproducibility.ensemble}).`
+                : job.status === 'cancelled'
+                  ? `Simulation cancelled; ${finalResults.frames.length} partial frame(s) preserved.`
+                  : `Simulation ${job.status}: ${job.errorMessage ?? 'see results.'}`,
+          },
+        });
+      } catch {
+        // Section 9: show connection loss rather than inventing job status
+        set({
+          isScienceBusy: false,
+          experimentConnectionLost: true,
+          statusBanner: {
+            kind: 'error',
+            message: `Lost connection while tracking job ${jobId}. Use Reconnect to retrieve authoritative status.`,
+          },
+        });
+      }
+    };
+
+    try {
+      const job = await submitExperimentJob(submittedMolecule, config, idempotencyKey);
+      set({
+        activeJob: job,
+        activeResults: null,
+        statusBanner: {
+          kind: 'info',
+          message: `Submitted OpenMM job ${job.jobId} (revision ${submittedMolecule.revisionId}).`,
+        },
+      });
+      await pollJob(job.jobId);
+    } catch (err) {
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'error',
+          message:
+            err instanceof Error ? err.message : 'Failed to submit OpenMM simulation job.',
+        },
+      });
+    }
+  },
+
+  cancelActiveExperiment: async () => {
+    const job = get().activeJob;
+    if (!job) return;
+    try {
+      const updated = await cancelExperimentJob(job.jobId);
+      set({
+        activeJob: updated,
+        statusBanner: {
+          kind: 'warning',
+          message:
+            updated.status === 'cancelled'
+              ? `Job ${updated.jobId} cancelled.`
+              : `Cancellation requested for ${updated.jobId}; waiting for worker to stop…`,
+        },
+      });
+    } catch (err) {
+      set({
+        experimentConnectionLost: true,
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Failed to send cancel request.',
+        },
+      });
+    }
+  },
+
+  reconnectActiveExperiment: async () => {
+    const job = get().activeJob;
+    if (!job) return;
+    clearActivePollTimer();
+    try {
+      const freshJob = await getExperimentStatus(job.jobId);
+      const freshResults = await getExperimentResults(job.jobId);
+      set({
+        activeJob: freshJob,
+        activeResults: freshResults,
+        experimentConnectionLost: false,
+        isScienceBusy:
+          freshJob.status === 'queued' ||
+          freshJob.status === 'running' ||
+          freshJob.status === 'cancelling',
+        statusBanner: {
+          kind: freshJob.status === 'interrupted' ? 'warning' : 'info',
+          message:
+            freshJob.status === 'interrupted'
+              ? `Recovered job ${freshJob.jobId}: service restarted and marked job interrupted (${freshResults.frames.length} partial frames retained).`
+              : `Reconnected to job ${freshJob.jobId} (status: ${freshJob.status}).`,
+        },
+      });
+    } catch (err) {
+      set({
+        experimentConnectionLost: true,
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Reconnect failed: science-api unreachable.',
+        },
+      });
+    }
+  },
+
+  resetExperimentInputs: () =>
+    set((state) => {
+      // Section 9: Restores captured starting revision & preset defaults; never starts or cancels a run
+      const preset =
+        state.simulationPresets.find((p) => p.id === state.experimentConfig.modelPresetId) ??
+        state.simulationPresets[0];
+      const restoredMol = state.experimentStartingMolecule
+        ? cloneMolecule(state.experimentStartingMolecule)
+        : state.molecule;
+      return {
+        molecule: restoredMol,
+        validation: validateChemistryProvisional(restoredMol),
+        experimentConfig: {
+          ...state.experimentConfig,
+          initialStructureRevisionId: restoredMol.revisionId,
+          temperature: {
+            dimension: 'temperature',
+            unit: 'K',
+            value: preset?.defaultTemperatureK ?? 300,
+          },
+          timestep: {
+            dimension: 'time',
+            unit: 'fs',
+            value: preset?.defaultTimestepFs ?? 1.0,
+          },
+          duration: {
+            dimension: 'time',
+            unit: 'ps',
+            value: preset?.defaultDurationPs ?? 2.0,
+          },
+          reportIntervalSteps: 40,
+          randomSeed: 42,
+          minimizeBeforeRun: true,
+        },
+        statusBanner: {
+          kind: 'info',
+          message: 'Experiment inputs restored to captured starting revision and preset defaults (no job started or cancelled).',
+        },
+      };
+    }),
+
+  setPlaybackFrameIndex: (index) =>
+    set((state) => {
+      const count = state.activeResults?.frames.length ?? 0;
+      if (count === 0) return { playbackFrameIndex: 0 };
+      const clamped = Math.max(0, Math.min(count - 1, index));
+      return { playbackFrameIndex: clamped };
+    }),
+
+  stepTrajectory: (delta) =>
+    set((state) => {
+      const count = state.activeResults?.frames.length ?? 0;
+      if (count === 0) return {};
+      const next = Math.max(0, Math.min(count - 1, state.playbackFrameIndex + delta));
+      return { playbackFrameIndex: next, isPlayingTrajectory: false };
+    }),
+
+  toggleTrajectoryPlayback: () =>
+    set((state) => {
+      const count = state.activeResults?.frames.length ?? 0;
+      if (count <= 1) return { isPlayingTrajectory: false };
+      if (!state.isPlayingTrajectory && state.playbackFrameIndex >= count - 1) {
+        return { isPlayingTrajectory: true, playbackFrameIndex: 0 };
+      }
+      return { isPlayingTrajectory: !state.isPlayingTrajectory };
+    }),
+
+  resetTrajectoryPlayback: () =>
+    set({ playbackFrameIndex: 0, isPlayingTrajectory: false }),
 }));
