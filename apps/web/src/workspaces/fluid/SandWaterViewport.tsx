@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   FERRO_RADIUS,
+  MATERIAL_DENSITY_G_CM3,
   MAX_MACRO_PARTICLES,
   type MacroParticleKind,
   OIL_RADIUS,
@@ -545,7 +546,7 @@ export const SandWaterViewport: React.FC = () => {
         new THREE.Color('#ca8a04'),
       ];
       const oilColor = new THREE.Color('#a3e635');
-      const ferroColor = new THREE.Color('#475569');
+      const ferroColor = new THREE.Color('#25282e');
       let lastCpuCamReset = stCpuInit.cameraResetNonce;
       let frameTicker = 0;
 
@@ -820,9 +821,9 @@ export const SandWaterViewport: React.FC = () => {
                 : fluidTool === 'pour-oil'
                   ? 'Pour Oil (click/drag)'
                   : fluidTool === 'pour-ferro'
-                    ? 'Pour Ferrofluid (click/drag)'
+                    ? 'Pour Magnetite (click/drag)'
                     : fluidTool === 'magnet'
-                      ? 'Magnet (drag to pull Ferrofluid)'
+                      ? 'Magnet (drag to pull Magnetite)'
                       : fluidTool === 'stir'
                         ? 'Stir / Push (drag)'
                         : 'Orbit Camera'}
@@ -832,8 +833,9 @@ export const SandWaterViewport: React.FC = () => {
 
         <div className="viewport-hud-top-right">
           <span className="hud-pill hud-pill-mode">
-            {fluidContainerMode === 'glass' ? '3D Glass' : 'Lab Tank'} · Water (1.0) · Oil (0.72)
-            · Sand (2.4) · Ferro (3.2)
+            {fluidContainerMode === 'glass' ? '3D Glass' : 'Lab Tank'} · Density g/cm³: Oil{' '}
+            {MATERIAL_DENSITY_G_CM3.oil} · Water {MATERIAL_DENSITY_G_CM3.water.toFixed(1)} · Sand{' '}
+            {MATERIAL_DENSITY_G_CM3.sand} · Magnetite {MATERIAL_DENSITY_G_CM3.ferro}
           </span>
         </div>
       </div>

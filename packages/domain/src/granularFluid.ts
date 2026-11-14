@@ -67,6 +67,24 @@ export const SAND_RADIUS = 0.072;
 export const OIL_RADIUS = 0.082;
 export const FERRO_RADIUS = 0.072;
 
+/**
+ * Real-world densities in g/cm³ (relative to water), used as particle masses.
+ * 'ferro' is magnetite (Fe₃O₄) "black iron sand", handled as magnetic grains.
+ */
+export const MATERIAL_DENSITY_G_CM3: Readonly<Record<MacroParticleKind, number>> = {
+  water: 1.0, // liquid water ~20 °C
+  oil: 0.92, // vegetable / cooking oil
+  sand: 2.65, // quartz (SiO₂) grains
+  ferro: 5.2, // magnetite (Fe₃O₄) grains
+};
+
+export const MATERIAL_LABELS: Readonly<Record<MacroParticleKind, string>> = {
+  water: 'Water',
+  oil: 'Oil',
+  sand: 'Sand',
+  ferro: 'Magnetite',
+};
+
 export function getObstaclesForPreset(
   presetId: SandWaterPresetId,
   hasBarrier: boolean,
@@ -127,13 +145,13 @@ function kindToCode(kind: MacroParticleKind): number {
 function particleMassFromCode(code: number): number {
   switch (code) {
     case 0:
-      return 1.0;
+      return MATERIAL_DENSITY_G_CM3.water;
     case 1:
-      return 2.4;
+      return MATERIAL_DENSITY_G_CM3.sand;
     case 2:
-      return 0.72;
+      return MATERIAL_DENSITY_G_CM3.oil;
     default:
-      return 3.2;
+      return MATERIAL_DENSITY_G_CM3.ferro;
   }
 }
 
@@ -641,7 +659,9 @@ export function stepSandWaterSimulation(
         }
       }
       density[i] = Math.max(restDensity * 0.35, rho);
-      pressure[i] = gasK * Math.max(0, density[i]! - restDensity * (k === 2 ? 0.72 : 1.0));
+      pressure[i] =
+        gasK *
+        Math.max(0, density[i]! - restDensity * (k === 2 ? MATERIAL_DENSITY_G_CM3.oil : 1.0));
     }
 
     // 3. Accumulate pairwise forces
@@ -962,20 +982,17 @@ export function computeSandWaterStats(state: SandWaterSimulationState): {
       state.vy[i]! * state.vy[i]! +
       state.vz[i]! * state.vz[i]!;
     const k = state.kinds[i]!;
+    ke += 0.5 * particleMassFromCode(k) * v2;
     if (k === 0) {
       waterCount += 1;
       sumWaterY += state.py[i]!;
-      ke += 0.5 * 1.0 * v2;
     } else if (k === 1) {
       sandCount += 1;
       sumSandY += state.py[i]!;
-      ke += 0.5 * 2.4 * v2;
     } else if (k === 2) {
       oilCount += 1;
-      ke += 0.5 * 0.72 * v2;
     } else {
       ferroCount += 1;
-      ke += 0.5 * 3.2 * v2;
     }
   }
 

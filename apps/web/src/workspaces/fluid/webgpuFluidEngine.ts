@@ -1,5 +1,6 @@
 /// <reference types="@webgpu/types" />
 import {
+  MATERIAL_DENSITY_G_CM3,
   type MacroParticleKind,
   type ObstacleBox3D,
   type SandWaterConfig,
@@ -43,6 +44,10 @@ export const DEFAULT_GLASS_CONTAINER: GpuContainerMode = {
   tankHalfZ: 2.1,
 };
 
+function wgslFloat(v: number): string {
+  return Number.isInteger(v) ? `${v}.0` : `${v}`;
+}
+
 const COMPUTE_WGSL = /* wgsl */ `
 struct SimParams {
   uCounts: vec4<u32>,      // x=activeCount, y=maxParticles, z=totalGridCells, w=obstacleCount
@@ -76,10 +81,10 @@ struct ObstacleBox {
 @group(0) @binding(8) var<storage, read> obstacles: array<ObstacleBox>;
 
 fn particleMass(k: f32) -> f32 {
-  if (k < 0.5) { return 1.0; }       // water
-  if (k < 1.5) { return 2.4; }       // sand
-  if (k < 2.5) { return 0.72; }      // oil (floats above water)
-  return 3.2;                        // ferrofluid (dense metallic)
+  if (k < 0.5) { return ${wgslFloat(MATERIAL_DENSITY_G_CM3.water)}; } // water
+  if (k < 1.5) { return ${wgslFloat(MATERIAL_DENSITY_G_CM3.sand)}; } // quartz sand
+  if (k < 2.5) { return ${wgslFloat(MATERIAL_DENSITY_G_CM3.oil)}; } // oil (floats above water)
+  return ${wgslFloat(MATERIAL_DENSITY_G_CM3.ferro)}; // magnetite grains
 }
 
 fn particleRadius(k: f32) -> f32 {
@@ -162,7 +167,7 @@ fn computeDensity(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
   }
 
-  let targetScale = select(1.0, 0.72, pInfo.w > 1.5);
+  let targetScale = select(1.0, ${wgslFloat(MATERIAL_DENSITY_G_CM3.oil)}, pInfo.w > 1.5);
   let restRho = params.uPhysics2.w * targetScale;
   let clampedRho = max(restRho * 0.35, rho);
   let gasK = 0.22 * params.uPhysics2.y;
@@ -530,9 +535,10 @@ fn fsMain(in: VSOut) -> FSOut {
     rgb = mix(deepOil, brightOil, 0.35 + 0.55 * diff + 0.4 * fresnel) + vec3<f32>(1.0, 0.98, 0.75) * spec * 0.75;
   } else {
     let spec = pow(max(0.0, dot(normal, halfVec)), 64.0);
-    let baseFerro = vec3<f32>(0.10, 0.09, 0.18);
-    let rimFerro = vec3<f32>(0.55, 0.32, 0.92);
-    rgb = baseFerro * (0.3 + 0.7 * diff) + rimFerro * fresnel * 0.65 + vec3<f32>(0.92, 0.84, 1.0) * spec * 1.1;
+    // Magnetite: near-black with a steel-grey metallic sheen
+    let baseMag = vec3<f32>(0.07, 0.07, 0.08);
+    let rimMag = vec3<f32>(0.45, 0.48, 0.55);
+    rgb = baseMag * (0.3 + 0.7 * diff) + rimMag * fresnel * 0.6 + vec3<f32>(0.85, 0.88, 0.95) * spec * 1.1;
   }
 
   var out: FSOut;

@@ -31,7 +31,7 @@ const PRESET_OPTIONS: Array<{ id: SandWaterPresetId; label: string; desc: string
   {
     id: 'density-tower',
     label: '4-Layer Density Tower',
-    desc: 'Oil (0.72), Water (1.0), Sand (2.4), and Ferrofluid (3.2) stratify by density; use the Magnet!',
+    desc: 'Oil (0.92), Water (1.0), quartz Sand (2.65), and Magnetite iron sand (5.2 g/cm³) stratify by real density; use the Magnet!',
   },
   {
     id: 'plinko-funnel',
@@ -41,7 +41,7 @@ const PRESET_OPTIONS: Array<{ id: SandWaterPresetId; label: string; desc: string
   {
     id: 'sand-into-water',
     label: 'Sand into Water Pool',
-    desc: 'Heavier sand grains (2.4× density) drop into a water pool and sink through displaced fluid.',
+    desc: 'Quartz sand grains (2.65× denser than water) drop into a water pool and sink through displaced fluid.',
   },
   {
     id: 'dam-break',
@@ -99,7 +99,7 @@ export const SandWaterWorkspace: React.FC = () => {
     { id: 'pour-water', label: 'Pour Water', icon: <Droplets size={14} aria-hidden="true" /> },
     { id: 'pour-oil', label: 'Pour Oil', icon: <Flame size={14} aria-hidden="true" /> },
     { id: 'pour-sand', label: 'Pour Sand', icon: <Sparkles size={14} aria-hidden="true" /> },
-    { id: 'pour-ferro', label: 'Pour Ferro', icon: <Zap size={14} aria-hidden="true" /> },
+    { id: 'pour-ferro', label: 'Pour Magnetite', icon: <Zap size={14} aria-hidden="true" /> },
     { id: 'stir', label: 'Stir / Push', icon: <Hand size={14} aria-hidden="true" /> },
     { id: 'magnet', label: 'Magnet', icon: <Magnet size={14} aria-hidden="true" /> },
     {
@@ -254,7 +254,7 @@ export const SandWaterWorkspace: React.FC = () => {
                 setFluidAutoPourKind(fluidAutoPourKind === 'ferro' ? 'none' : 'ferro')
               }
             >
-              {fluidAutoPourKind === 'ferro' ? 'Stop (Ferro)' : 'Auto: Ferro'}
+              {fluidAutoPourKind === 'ferro' ? 'Stop (Magnetite)' : 'Auto: Magnetite'}
             </button>
           </div>
           <div className="exp-action-row" style={{ marginTop: 6 }}>
@@ -433,7 +433,7 @@ export const SandWaterWorkspace: React.FC = () => {
           <div className="observables-grid">
             <div className="observables-stats">
               <div className="stat-card">
-                <span className="field-label">Water · Oil · Sand · Ferro</span>
+                <span className="field-label">Water · Oil · Sand · Magnetite</span>
                 <span className="stat-val mono">
                   {fluidStats.waterCount} · {fluidStats.oilCount} · {fluidStats.sandCount} ·{' '}
                   {fluidStats.ferroCount}
@@ -463,11 +463,11 @@ export const SandWaterWorkspace: React.FC = () => {
 
             <div className="observables-visual">
               <p className="small-text" style={{ margin: '3px 0' }}>
-                <strong>4-Material Physics &amp; 3D Maze:</strong>{' '}
-                <strong>Oil</strong> (ρ=0.72) is immiscible with <strong>Water</strong> (ρ=1.0) and
-                floats on top. <strong>Sand</strong> (ρ=2.4) sinks &amp; piles via friction, while{' '}
-                <strong>Ferrofluid</strong> (ρ=3.2) reacts strongly to the <strong>Magnet</strong>{' '}
-                tool!
+                <strong>Real densities (g/cm³):</strong> <strong>Oil</strong> (0.92) is immiscible
+                with <strong>Water</strong> (1.0) and floats on top. Quartz <strong>Sand</strong>{' '}
+                (2.65) sinks &amp; piles via friction, and <strong>Magnetite</strong> iron sand (5.2)
+                sinks fastest and is pulled by the <strong>Magnet</strong> tool. Forces and
+                viscosity are still tuned for real-time stability, not SI units.
               </p>
               <p className="small-text muted" style={{ margin: 0 }}>
                 Try <strong>3D Cascade Maze</strong> with <strong>Auto: Water / Oil</strong>, or{' '}

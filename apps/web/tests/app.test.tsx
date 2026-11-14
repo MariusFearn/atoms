@@ -777,7 +777,7 @@ describe('MatterLab Web Application', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Pour Oil$/i }));
     expect(useLabStore.getState().fluidTool).toBe('pour-oil');
 
-    fireEvent.click(screen.getByRole('button', { name: /^Pour Ferro$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Pour Magnetite$/i }));
     expect(useLabStore.getState().fluidTool).toBe('pour-ferro');
 
     fireEvent.click(screen.getByRole('button', { name: /^Magnet$/i }));
