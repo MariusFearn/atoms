@@ -1,6 +1,6 @@
 # MatterLab — Option 1: Exploratory Nuclear Cluster & Force Sandbox Plan
 
-**Document status:** Proposed design plan  
+**Document status:** Implemented (Phases 1–4 complete; see Section 5 & Section 6 for status)  
 **Purpose:** Build an interactive, visually expressive 3D **"Nuclear Lego & Force Sandbox"** inside MatterLab so learners can concretely test geometric alpha-cluster ideas (e.g., $\text{Be-8}$ breakup, $\text{C-12}$ three-alpha lock, Hoyle state, $\text{O-16}$ tetrahedron) and compare custom/speculative force laws (including gravity vs. electromagnetism vs. short-range nuclear attraction) directly against real experimental nuclear data.
 
 ---
@@ -131,35 +131,28 @@ The implementation follows the existing 5-layer MatterLab structure without modi
 
 ## 5. Implementation Phases & Verification
 
-### Phase 1 — Domain Contracts & Reference Benchmarks
-- Create `packages/domain/src/nuclear.ts` with typed `fm`/`MeV` structures and verified AME2020/NNDC reference numbers for `He-4`, `Be-8`, `C-12`, `C-12 (Hoyle)`, and `O-16`.
-- **Verify:** Unit tests in `packages/domain/tests/nuclear.test.ts` validating finite coordinates, unit conversions ($\text{MeV} \leftrightarrow u$), and benchmark data integrity.
+### Phase 1 — Domain Contracts & Reference Benchmarks (Done)
+- [x] Created `packages/domain/src/nuclear.ts` with typed `fm`/`MeV` structures and verified AME2020/NNDC reference numbers for `He-4`, `Be-8`, `C-12`, `C-12 (Hoyle)`, `O-16`, and `p + ¹¹B` (`b11-proton-fusion`).
+- [x] Verified via unit tests in `packages/domain/tests/nuclear.test.ts`.
 
-### Phase 2 — Python Velocity-Verlet Solver & API Endpoints
-- Implement `services/science-api/app/adapters/nuclear_toy/adapter.py` and `/api/v1/sandbox/nuclear/*` routes.
-- **Verify (`pytest`):**
-  - NVE energy conservation check ($\max |\Delta E| / |E_0| < 10^{-3}$ for bounded oscillations).
-  - Sanity checks: `Real Gravity Only` on `Be-8` dissociates immediately (`coulomb_mev >> |gravity_mev|` by $\sim 10^{36}$); `Standard Nuclear Toy` keeps `C-12` triangle and `O-16` tetrahedron bound; `Amplified 1/r² Gravity (no core)` either dissociates or collapses to core limit.
-  - Validation rejects non-finite numbers, invalid particle counts, or out-of-range parameters with typed `ApiErrorDetail`.
+### Phase 2 — Python Velocity-Verlet Solver & API Endpoints (Done)
+- [x] Implemented `services/science-api/app/adapters/nuclear_toy/adapter.py` and `/api/v1/sandbox/nuclear/*` routes (`GET /presets`, `POST /simulate`).
+- [x] Verified via `pytest` in `services/science-api/tests/test_nuclear_toy_api.py` (NVE conservation, `Be-8` dissociation under default & real gravity, `10³⁶×` gravity collapse without core, `p + ¹¹B` proxy, and validation errors).
 
-### Phase 3 — 3D Nuclear Viewport & Sandbox UI
-- Build `NuclearSceneViewport.tsx`, `NuclearSandboxWorkspace.tsx`, Zustand slice/actions, and `TopBar.tsx` tab integration.
-- **Verify (`npm run typecheck`, `npm run lint`, `npm test`, `npm run build` + browser check):**
-  - Persistent `"Exploratory Toy Model · Femtometer (fm) Scale"` disclosure banner is always visible.
-  - Switching presets (`Be-8`, `C-12`, `O-16`), adjusting sliders, running a simulation, scrubbing frames, and toggling force arrows work smoothly at interactive FPS without console errors.
-  - Existing `Molecule Editor` and `Experiment (OpenMM)` workflows remain completely intact.
+### Phase 3 — 3D Nuclear Viewport & Sandbox UI (Done)
+- [x] Built `NuclearSceneViewport.tsx`, `NuclearSandboxWorkspace.tsx` (including Custom Particle Builder for adding/removing/editing protons, neutrons, and alphas), Zustand state in `useLabStore.ts`, and `TopBar.tsx` tab integration.
+- [x] Verified via `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and live browser runs.
 
-### Phase 4 — Guided "Experiments to Try" & Educational Polish
-- Add 4 beginner-friendly interactive experiments right inside the sidebar:
-  1. *"Can real gravity hold two alphas ($\text{Be-8}$) together?"*
-  2. *"What happens if you boost gravity $10^{36}\times$?"* (discovering why $1/r^2$ forces alone don't lock at a fixed radius)
-  3. *"Why does $\text{Be-8}$ split while $\text{C-12}$ locks in a triangle?"*
-  4. *"Stretch the triangle: the Hoyle state ($7.654\text{ MeV}$) that makes carbon in stars"*
-- Add JSON/CSV export of sandbox runs with full parameter + disclosure metadata.
+### Phase 4 — Guided "Experiments to Try" & Educational Polish (Done)
+- [x] Added 4 interactive guided experiments (`NUCLEAR_GUIDED_EXPERIMENTS`) and JSON/CSV export of sandbox trajectories.
 
 ---
 
-## 6. Out of Scope (Explicitly Deferred)
-- Exact quantum many-body wavefunctions (ab-initio nuclear lattice EFT / Greens Function Monte Carlo).
-- Relativistic QCD / quark-gluon dynamics inside individual protons/neutrons.
-- Nuclear reaction cross-sections or radiation transport (reserved for future `Geant4` evaluation in Milestone 6).
+## 6. Out of Scope & Remaining Enhancements
+- **Optional Future Enhancements for This Sandbox:**
+  - Direct 3D drag-to-move for particles in `NuclearSceneViewport.tsx` (currently edited numerically via Custom Builder inputs).
+  - Toggleable orientation/angular-lock or magnetic dipole pairwise term in `adapter.py`.
+- **Explicitly Out of Scope (Deferred to Milestone 6+):**
+  - Exact quantum many-body wavefunctions (ab-initio nuclear lattice EFT / Greens Function Monte Carlo).
+  - Relativistic QCD / quark-gluon dynamics inside individual protons/neutrons.
+  - Nuclear reaction cross-sections or radiation transport (reserved for future `Geant4` evaluation in Milestone 6).

@@ -113,3 +113,22 @@ npm run build
 # Run science-api Python tests with uv
 cd services/science-api && uv run pytest -v
 ```
+
+## Project Status: What Is Done vs. What Is Left
+
+### Done (Implemented & Verified)
+- **Milestones 0–3:** 3D Molecule Editor (`H, C, N, O, F, P, S, Cl, Br, I`), keyboard/3D editing, undo/redo, `.matterlab.json` persistence, RDKit validation, ETKDGv3 conformer generation, and MOL V2000 import/export.
+- **Milestone 4:** OpenMM `tip3p-water-nvt` & `tip3p-water-nve` molecular dynamics (CUDA GPU with automatic CPU fallback), SQLite-persisted job queue, cancellation/reconnect, trajectory playback (`10/30/60 FPS`), and energy/temperature charts.
+- **Milestone 5:** PySCF single-point quantum chemistry (`RHF`, `RKS-B3LYP`), orbital energies, dipole moment, and 3D HOMO amplitude/phase vs. total electron density overlays.
+- **Exploratory Additions (Beyond Initial MVP):**
+  - **Atom (`Wave Lab`):** Analytical 3D hydrogenic standing-wave visualizer (`1s`–`3d`), `z ≤ 0` cross-section slice, magnetic dipole field loops, and hydrogen spectral line calculator.
+  - **Nuclear Sandbox (`Toy`):** `numpy` Velocity-Verlet N-body playground (`He-4`, `Be-8`, `C-12`, `C-12 Hoyle`, `O-16`, `p + ¹¹B`), 4 guided experiments, Custom Particle Builder, 3D force arrows, energy breakdown chart, and AME2020/NNDC benchmarks.
+  - **Combined Dev Launcher & Licensing:** `./scripts/start-dev.sh` (`npm run dev:all`), MIT `LICENSE`, and updated `THIRD_PARTY_NOTICES.md`.
+
+### What Is Left (Future Roadmap — Milestone 6 & Beyond)
+See [MatterLab_Project_Specification.md](./MatterLab_Project_Specification.md) for the full long-term roadmap:
+- **OpenMM Force-Field Expansion:** Broader molecule support beyond pure TIP3P water clusters (e.g., solvated organic molecules, AMBER/GAFF/OpenFF parameterization, and trajectory streaming for larger systems).
+- **Quantum Chemistry Extensions:** Geometry optimization, vibrational frequencies, and multi-electron orbital/ESP isosurfaces in PySCF (or Psi4).
+- **Milestone 6 (Advanced Engines):** Evaluate **LAMMPS** for materials science and reactive MD (ReaxFF), and **Geant4** for particle-transport / radiation-physics workflows.
+- **Broader Interchange & Tooling:** `PDB`, `mmCIF`, and `XYZ` import/export, Playwright end-to-end browser test suite + rendering benchmark harness, and optional 3D drag-to-reposition / angular-dipole force terms in the Nuclear Sandbox.
+
