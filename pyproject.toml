@@ -1,0 +1,14 @@
+[project]
+name = "matterlab-workspace"
+version = "0.1.0"
+description = "MatterLab root Python workspace (uv-managed)"
+requires-python = ">=3.11"
+dependencies = [
+    "matterlab-science-api",
+]
+
+[tool.uv.workspace]
+members = ["services/science-api"]
+
+[tool.uv.sources]
+matterlab-science-api = { workspace = true }

@@ -17,7 +17,7 @@ This workspace implements **Milestones 0–3** (3D molecule editor, typed domain
   - Curated reference examples: Water (`H₂O`), Carbon Dioxide (`CO₂`), Methane (`CH₄`), and Benzene (`C₆H₆`).
   - RDKit validation & molecular descriptors, ETKDGv3 conformer generation (explicitly labeled as generated and not energy-minimized), and single-structure MOL/SDF import/export when `science-api` is running.
 - **Domain & Client Packages (`packages/domain`, `packages/simulation-client`)**: Typed `Quantity` units and conversions, IUPAC/NIST/Cordero/Bondi reference element data, explicit-atom formula calculation, structural integrity checks, provisional valence validation, versioned JSON project persistence (`matterlab.project.v1`), and typed `snake_case` <-> `camelCase` API boundary mapping.
-- **Science API Service (`services/science-api`)**: Python FastAPI service managed with `uv` (`pyproject.toml` + `uv.lock`) and **RDKit** (`rdkit`), providing `/api/v1/health`, `/api/v1/capabilities`, `/api/v1/elements`, `/api/v1/molecules/validate`, `/api/v1/molecules/conformers`, `/api/v1/molecules/import/mol`, and `/api/v1/molecules/export/mol` while honestly reporting OpenMM (Milestone 4) as unavailable.
+- **Science API Service (`services/science-api`)**: Python FastAPI service managed via a root `uv` workspace ([pyproject.toml](./pyproject.toml) + [uv.lock](./uv.lock) + root `.venv`) and **RDKit** (`rdkit`), providing `/api/v1/health`, `/api/v1/capabilities`, `/api/v1/elements`, `/api/v1/molecules/validate`, `/api/v1/molecules/conformers`, `/api/v1/molecules/import/mol`, and `/api/v1/molecules/export/mol` while honestly reporting OpenMM (Milestone 4) as unavailable.
 
 ## Prerequisites
 
@@ -38,9 +38,9 @@ Open `http://localhost:5173` in a WebGL2-capable browser.
 ### 2. Optional Science API Service (`uv`)
 
 ```bash
-cd services/science-api
+# Creates and syncs the root .venv from pyproject.toml + uv.lock
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+cd services/science-api && uv run uvicorn app.main:app --reload --port 8000
 ```
 
 The Vite dev server proxies `/api/*` requests to `http://127.0.0.1:8000`. If `science-api` is not running, the web editor remains fully usable in local editing mode and disables service-dependent RDKit buttons with an explanation.

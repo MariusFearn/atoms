@@ -1,0 +1,15 @@
+pyproject.toml
+app/__init__.py
+app/main.py
+app/adapters/__init__.py
+app/adapters/rdkit/__init__.py
+app/adapters/rdkit/adapter.py
+app/models/__init__.py
+app/models/contracts.py
+matterlab_science_api.egg-info/PKG-INFO
+matterlab_science_api.egg-info/SOURCES.txt
+matterlab_science_api.egg-info/dependency_links.txt
+matterlab_science_api.egg-info/requires.txt
+matterlab_science_api.egg-info/top_level.txt
+tests/test_health.py
+tests/test_rdkit_api.py
