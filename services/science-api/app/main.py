@@ -12,6 +12,11 @@ from app.adapters.openmm.adapter import (
     list_presets as list_openmm_presets,
     openmm_version,
 )
+from app.adapters.pyscf.adapter import (
+    PyScfAdapterError,
+    list_quantum_presets,
+    pyscf_version,
+)
 from app.adapters.rdkit.adapter import (
     MVP_BASELINE_ELEMENTS,
     RdkitAdapterError,
@@ -22,6 +27,7 @@ from app.adapters.rdkit.adapter import (
     validate_molecule,
 )
 from app.jobs.manager import JobManager
+from app.jobs.quantum_manager import QuantumJobManager
 from app.models.contracts import (
     AdapterCapability,
     ApiErrorDetail,
@@ -37,6 +43,10 @@ from app.models.contracts import (
     MolExportResponse,
     MolImportRequest,
     MolImportResponse,
+    QuantumJobCreateRequest,
+    QuantumJobDto,
+    QuantumPresetDto,
+    QuantumResultsDto,
     SimulationPresetDto,
     ValidateMoleculeRequest,
     ValidationResponse,
@@ -58,7 +68,7 @@ BASELINE_ELEMENTS: list[ElementSummary] = [
 ]
 
 
-def _raise_http_error(exc: RdkitAdapterError | OpenMMAdapterError) -> None:
+def _raise_http_error(exc: RdkitAdapterError | OpenMMAdapterError | PyScfAdapterError) -> None:
     raise HTTPException(
         status_code=exc.http_status,
         detail=ApiErrorDetail(
@@ -72,6 +82,7 @@ def _raise_http_error(exc: RdkitAdapterError | OpenMMAdapterError) -> None:
 
 def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
     job_manager = JobManager(db_path=jobs_db_path)
+    quantum_manager = QuantumJobManager(db_path=jobs_db_path)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -79,14 +90,16 @@ def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
             yield
         finally:
             job_manager.shutdown(wait=True)
+            quantum_manager.shutdown(wait=True)
 
     app = FastAPI(
         title="MatterLab Science API",
         version=API_VERSION,
-        description="Typed scientific engine boundary for MatterLab (RDKit + OpenMM enabled).",
+        description="Typed scientific engine boundary for MatterLab (RDKit + OpenMM + PySCF enabled).",
         lifespan=lifespan,
     )
     app.state.job_manager = job_manager
+    app.state.quantum_manager = quantum_manager
 
     app.add_middleware(
         CORSMiddleware,
@@ -101,7 +114,7 @@ def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
             status="ok",
             service="matterlab-science-api",
             version=API_VERSION,
-            mode="rdkit-openmm-enabled",
+            mode="rdkit-openmm-pyscf-enabled",
         )
 
     @app.get("/api/v1/capabilities", response_model=CapabilitiesResponse)
@@ -141,6 +154,23 @@ def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
                     limitations=[
                         "Validated presets cover pure TIP3P water clusters (2–64 H2O molecules) under amber14/tip3p.xml.",
                         "Standard classical force fields use fixed topology and cannot model bond breaking or proton transfer.",
+                    ],
+                ),
+                AdapterCapability(
+                    adapter="pyscf",
+                    available=True,
+                    version=pyscf_version(),
+                    supported_elements=list(MVP_BASELINE_ELEMENTS),
+                    supported_operations=[
+                        "single_point_rhf",
+                        "single_point_rks_b3lyp",
+                        "molecular_orbital_energies",
+                        "homo_orbital_grid",
+                        "electron_density_grid",
+                    ],
+                    limitations=[
+                        "Closed-shell singlet restricted HF/KS-DFT only; radicals and open-shell spin states are deferred.",
+                        "Single-point gas-phase electronic structure at fixed coordinates; approximate finite basis-set methods.",
                     ],
                 ),
             ],
@@ -221,6 +251,38 @@ def create_app(*, jobs_db_path: Path | None = None) -> FastAPI:
         try:
             return job_manager.get_results(job_id)
         except OpenMMAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/quantum/presets", response_model=list[QuantumPresetDto])
+    def get_quantum_presets() -> list[QuantumPresetDto]:
+        return list_quantum_presets()
+
+    @app.post("/api/v1/quantum/jobs", response_model=QuantumJobDto, status_code=202)
+    def post_create_quantum_job(req: QuantumJobCreateRequest) -> QuantumJobDto:
+        try:
+            return quantum_manager.submit_job(req)
+        except PyScfAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/quantum/jobs/{job_id}", response_model=QuantumJobDto)
+    def get_quantum_job(job_id: str) -> QuantumJobDto:
+        try:
+            return quantum_manager.get_job(job_id)
+        except PyScfAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.post("/api/v1/quantum/jobs/{job_id}/cancel", response_model=QuantumJobDto)
+    def post_cancel_quantum_job(job_id: str) -> QuantumJobDto:
+        try:
+            return quantum_manager.cancel_job(job_id)
+        except PyScfAdapterError as exc:
+            _raise_http_error(exc)
+
+    @app.get("/api/v1/quantum/jobs/{job_id}/results", response_model=QuantumResultsDto)
+    def get_quantum_job_results(job_id: str) -> QuantumResultsDto:
+        try:
+            return quantum_manager.get_results(job_id)
+        except PyScfAdapterError as exc:
             _raise_http_error(exc)
 
     return app

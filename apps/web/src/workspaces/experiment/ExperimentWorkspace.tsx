@@ -43,6 +43,7 @@ export const ExperimentWorkspace: React.FC<ExperimentWorkspaceProps> = ({
   onRequestProtectedAction,
 }) => {
   const [showDataTable, setShowDataTable] = useState(false);
+  const [playbackFps, setPlaybackFps] = useState<number>(30);
 
   const molecule = useLabStore((s) => s.molecule);
   const serviceStatus = useLabStore((s) => s.serviceStatus);
@@ -71,15 +72,16 @@ export const ExperimentWorkspace: React.FC<ExperimentWorkspaceProps> = ({
     if (!isPlayingTrajectory || !activeResults || activeResults.frames.length <= 1) {
       return;
     }
+    const intervalMs = Math.max(16, Math.round(1000 / playbackFps));
     const timer = setInterval(() => {
       const st = useLabStore.getState();
       const count = st.activeResults?.frames.length ?? 0;
       if (count <= 1) return;
       const next = (st.playbackFrameIndex + 1) % count;
       st.setPlaybackFrameIndex(next);
-    }, 120);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [isPlayingTrajectory, activeResults]);
+  }, [isPlayingTrajectory, activeResults, playbackFps]);
 
   const selectedPreset =
     simulationPresets.find((p) => p.id === experimentConfig.modelPresetId) ??
@@ -445,6 +447,21 @@ export const ExperimentWorkspace: React.FC<ExperimentWorkspaceProps> = ({
               >
                 Reset Playback
               </button>
+              <label className="sr-only" htmlFor="playback-fps-select">
+                Playback frame rate
+              </label>
+              <select
+                id="playback-fps-select"
+                className="compact-select"
+                value={playbackFps}
+                onChange={(e) => setPlaybackFps(Number(e.target.value))}
+                aria-label="Playback speed"
+                title="Trajectory playback frame rate (independent of MD timestep)"
+              >
+                <option value={10}>10 FPS</option>
+                <option value={30}>30 FPS</option>
+                <option value={60}>60 FPS</option>
+              </select>
             </div>
 
             <div className="playback-scrubber">

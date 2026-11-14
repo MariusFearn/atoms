@@ -6,6 +6,7 @@ import { useLabStore } from '../state/useLabStore';
 
 const MAX_ATOM_INSTANCES = 4096;
 const MAX_BOND_INSTANCES = 8192;
+const MAX_QUANTUM_SAMPLES = 2500;
 
 interface ProjectedLabel {
   id: string;
@@ -150,6 +151,8 @@ export const LabSceneViewport: React.FC = () => {
   const activeJob = useLabStore((s) => s.activeJob);
   const experimentStartingMolecule = useLabStore((s) => s.experimentStartingMolecule);
   const playbackFrameIndex = useLabStore((s) => s.playbackFrameIndex);
+  const activeQuantumResults = useLabStore((s) => s.activeQuantumResults);
+  const quantumFieldOverlay = useLabStore((s) => s.quantumFieldOverlay);
   const activeTool = useLabStore((s) => s.activeTool);
   const activeElement = useLabStore((s) => s.activeElement);
   const selectedAtomIds = useLabStore((s) => s.selectedAtomIds);
@@ -202,6 +205,7 @@ export const LabSceneViewport: React.FC = () => {
     controls: OrbitControls;
     atomMesh: THREE.InstancedMesh;
     bondMesh: THREE.InstancedMesh;
+    quantumFieldMesh: THREE.InstancedMesh;
     selectionGroup: THREE.Group;
     gridHelper: THREE.GridHelper;
     axesHelper: THREE.AxesHelper;
@@ -281,6 +285,22 @@ export const LabSceneViewport: React.FC = () => {
     bondMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(bondMesh);
 
+    // Instanced quantum scalar field samples (orbital amplitude/phase or electron density)
+    const fieldGeo = new THREE.SphereGeometry(1, 10, 8);
+    const fieldMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+    });
+    const quantumFieldMesh = new THREE.InstancedMesh(
+      fieldGeo,
+      fieldMat,
+      MAX_QUANTUM_SAMPLES,
+    );
+    quantumFieldMesh.count = 0;
+    quantumFieldMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(quantumFieldMesh);
+
     const selectionGroup = new THREE.Group();
     scene.add(selectionGroup);
 
@@ -291,6 +311,7 @@ export const LabSceneViewport: React.FC = () => {
       controls,
       atomMesh,
       bondMesh,
+      quantumFieldMesh,
       selectionGroup,
       gridHelper,
       axesHelper,
@@ -550,6 +571,8 @@ export const LabSceneViewport: React.FC = () => {
       atomMat.dispose();
       cylGeo.dispose();
       bondMat.dispose();
+      fieldGeo.dispose();
+      fieldMat.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
@@ -710,6 +733,72 @@ export const LabSceneViewport: React.FC = () => {
     showBonds,
   ]);
 
+  // Synchronize Quantum Orbital / Electron Density 3D field samples
+  useEffect(() => {
+    const ctx = sceneDataRef.current;
+    if (!ctx) return;
+
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+
+    if (
+      workspaceTab !== 'quantum' ||
+      !activeQuantumResults ||
+      quantumFieldOverlay === 'none'
+    ) {
+      ctx.quantumFieldMesh.count = 0;
+      return;
+    }
+
+    if (
+      quantumFieldOverlay === 'homo-amplitude-phase' &&
+      activeQuantumResults.homoOrbitalField
+    ) {
+      const samples = activeQuantumResults.homoOrbitalField.samples.slice(
+        0,
+        MAX_QUANTUM_SAMPLES,
+      );
+      ctx.quantumFieldMesh.count = samples.length;
+      samples.forEach((s, idx) => {
+        const radius = Math.min(0.24, Math.max(0.08, Math.abs(s.value) * 1.1));
+        dummy.position.set(...s.positionAngstrom);
+        dummy.scale.setScalar(radius);
+        dummy.updateMatrix();
+        ctx.quantumFieldMesh.setMatrixAt(idx, dummy.matrix);
+        // Distinct positive vs negative wavefunction phase colors
+        color.set(s.value >= 0 ? '#38bdf8' : '#fb7185');
+        ctx.quantumFieldMesh.setColorAt(idx, color);
+      });
+    } else if (
+      quantumFieldOverlay === 'electron-density' &&
+      activeQuantumResults.electronDensityField
+    ) {
+      const samples = activeQuantumResults.electronDensityField.samples.slice(
+        0,
+        MAX_QUANTUM_SAMPLES,
+      );
+      ctx.quantumFieldMesh.count = samples.length;
+      samples.forEach((s, idx) => {
+        const radius = Math.min(0.22, Math.max(0.075, s.value * 0.9));
+        dummy.position.set(...s.positionAngstrom);
+        dummy.scale.setScalar(radius);
+        dummy.updateMatrix();
+        ctx.quantumFieldMesh.setMatrixAt(idx, dummy.matrix);
+        color.set('#a78bfa');
+        ctx.quantumFieldMesh.setColorAt(idx, color);
+      });
+    } else {
+      ctx.quantumFieldMesh.count = 0;
+      return;
+    }
+
+    ctx.quantumFieldMesh.instanceMatrix.needsUpdate = true;
+    if (ctx.quantumFieldMesh.instanceColor) {
+      ctx.quantumFieldMesh.instanceColor.needsUpdate = true;
+    }
+    ctx.quantumFieldMesh.computeBoundingSphere();
+  }, [workspaceTab, activeQuantumResults, quantumFieldOverlay]);
+
   // Camera reset
   useEffect(() => {
     const ctx = sceneDataRef.current;
@@ -787,7 +876,11 @@ export const LabSceneViewport: React.FC = () => {
               ? `Trajectory Playback · Frame ${playbackFrameIndex + 1}/${activeResults.frames.length} · t = ${activeFrame.simulationTimePs.toFixed(3)} ps`
               : workspaceTab === 'experiment' && activeJob && (activeJob.status === 'running' || activeJob.status === 'queued')
                 ? `OpenMM Simulation ${activeJob.status} (${Math.round(activeJob.progressFraction * 100)}%)`
-                : 'Static Structure Mode · No Active Simulation'}
+                : workspaceTab === 'quantum' && activeQuantumResults && quantumFieldOverlay === 'homo-amplitude-phase' && activeQuantumResults.homoOrbitalField
+                  ? `HOMO Wavefunction Amplitude & Phase (|ψ| ≥ ${activeQuantumResults.homoOrbitalField.isovalue} ${activeQuantumResults.homoOrbitalField.unit}) · Cyan (+), Coral (−)`
+                  : workspaceTab === 'quantum' && activeQuantumResults && quantumFieldOverlay === 'electron-density' && activeQuantumResults.electronDensityField
+                    ? `Total Electron Density (ρ ≥ ${activeQuantumResults.electronDensityField.isovalue} ${activeQuantumResults.electronDensityField.unit}) · Not a solid shell`
+                    : 'Static Structure Mode · No Active Simulation'}
           </span>
           {workspaceTab === 'molecule' && activeTool === 'place-atom' && (
             <span className="hud-pill hud-pill-tool">

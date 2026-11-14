@@ -10,6 +10,10 @@ import {
   type Molecule,
   PROJECT_SCHEMA_VERSION,
   type ProjectFileV1,
+  type QuantumJobConfig,
+  type QuantumJobInfo,
+  type QuantumModelPreset,
+  type QuantumResults,
   type RepresentationMode,
   type SimulationModelPreset,
   type StructureValidationReport,
@@ -25,19 +29,25 @@ import {
   type RdkitValidationResult,
   ScienceApiError,
   cancelExperimentJob,
+  cancelQuantumJob,
   exportMolBlockWithRdkit,
   fetchCapabilities,
   generateConformerWithRdkit,
   getExperimentResults,
   getExperimentStatus,
+  getQuantumJobStatus,
+  getQuantumResults,
   importMolBlockWithRdkit,
+  listQuantumPresets,
   listSimulationPresets,
   submitExperimentJob,
+  submitQuantumJob,
   validateMoleculeWithRdkit,
 } from '@matterlab/simulation-client';
 
 export type EditorTool = 'select' | 'place-atom' | 'bond';
-export type WorkspaceTab = 'molecule' | 'atom' | 'experiment';
+export type WorkspaceTab = 'molecule' | 'atom' | 'experiment' | 'quantum';
+export type QuantumFieldOverlayMode = 'none' | 'homo-amplitude-phase' | 'electron-density';
 
 export interface ServiceStatusState {
   state: 'checking' | 'connected' | 'offline';
@@ -46,6 +56,8 @@ export interface ServiceStatusState {
   rdkitVersion: string | null;
   openmmAvailable: boolean;
   openmmVersion: string | null;
+  pyscfAvailable: boolean;
+  pyscfVersion: string | null;
   detail: string;
 }
 
@@ -95,6 +107,12 @@ export interface LabState {
   experimentConnectionLost: boolean;
   playbackFrameIndex: number;
   isPlayingTrajectory: boolean;
+
+  quantumPresets: QuantumModelPreset[];
+  quantumConfig: QuantumJobConfig;
+  activeQuantumJob: QuantumJobInfo | null;
+  activeQuantumResults: QuantumResults | null;
+  quantumFieldOverlay: QuantumFieldOverlayMode;
 
   setWorkspaceTab: (tab: WorkspaceTab) => void;
   setProjectName: (name: string) => void;
@@ -169,6 +187,13 @@ export interface LabState {
   stepTrajectory: (delta: number) => void;
   toggleTrajectoryPlayback: () => void;
   resetTrajectoryPlayback: () => void;
+
+  loadQuantumPresets: () => Promise<void>;
+  selectQuantumPreset: (presetId: string) => void;
+  setQuantumComputeFields: (computeFields: boolean) => void;
+  setQuantumFieldOverlay: (mode: QuantumFieldOverlayMode) => void;
+  runQuantumCalculation: () => Promise<void>;
+  cancelActiveQuantumJob: () => Promise<void>;
 }
 
 let revisionCounter = 1;
@@ -264,12 +289,27 @@ const DEFAULT_EXPERIMENT_CONFIG: ExperimentConfig = {
   minimizeBeforeRun: true,
 };
 
+const DEFAULT_QUANTUM_CONFIG: QuantumJobConfig = {
+  modelPresetId: 'pyscf-rhf-631g',
+  modelPresetVersion: '1',
+  initialStructureRevisionId: initialWater.revisionId,
+  computeFields: true,
+};
+
 let activePollTimer: ReturnType<typeof setTimeout> | null = null;
+let activeQuantumPollTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearActivePollTimer(): void {
   if (activePollTimer !== null) {
     clearTimeout(activePollTimer);
     activePollTimer = null;
+  }
+}
+
+function clearActiveQuantumPollTimer(): void {
+  if (activeQuantumPollTimer !== null) {
+    clearTimeout(activeQuantumPollTimer);
+    activeQuantumPollTimer = null;
   }
 }
 
@@ -311,6 +351,8 @@ export const useLabStore = create<LabState>((set, get) => ({
     rdkitVersion: null,
     openmmAvailable: false,
     openmmVersion: null,
+    pyscfAvailable: false,
+    pyscfVersion: null,
     detail: 'Connecting to optional local science-api.',
   },
 
@@ -322,6 +364,12 @@ export const useLabStore = create<LabState>((set, get) => ({
   experimentConnectionLost: false,
   playbackFrameIndex: 0,
   isPlayingTrajectory: false,
+
+  quantumPresets: [],
+  quantumConfig: DEFAULT_QUANTUM_CONFIG,
+  activeQuantumJob: null,
+  activeQuantumResults: null,
+  quantumFieldOverlay: 'homo-amplitude-phase',
 
   setWorkspaceTab: (workspaceTab) => set({ workspaceTab }),
   setProjectName: (projectName) => set({ projectName, hasUnsavedChanges: true }),
@@ -725,11 +773,14 @@ export const useLabStore = create<LabState>((set, get) => ({
       const data = await fetchCapabilities();
       const rdkit = data.adapters.find((a) => a.adapter === 'rdkit');
       const openmm = data.adapters.find((a) => a.adapter === 'openmm');
+      const pyscf = data.adapters.find((a) => a.adapter === 'pyscf');
       const rdkitAvailable = rdkit?.available ?? false;
       const openmmAvailable = openmm?.available ?? false;
+      const pyscfAvailable = pyscf?.available ?? false;
       const parts: string[] = [`Science API v${data.api_version}`];
       if (rdkitAvailable) parts.push(`RDKit ${rdkit?.version ?? ''}`.trim());
       if (openmmAvailable) parts.push(`OpenMM ${openmm?.version ?? ''}`.trim());
+      if (pyscfAvailable) parts.push(`PySCF ${pyscf?.version ?? ''}`.trim());
       set({
         serviceStatus: {
           state: 'connected',
@@ -738,15 +789,16 @@ export const useLabStore = create<LabState>((set, get) => ({
           rdkitVersion: rdkit?.version ?? null,
           openmmAvailable,
           openmmVersion: openmm?.version ?? null,
-          detail: openmmAvailable
-            ? 'RDKit cheminformatics and OpenMM molecular dynamics ready.'
-            : rdkitAvailable
-              ? 'RDKit validation, descriptors, ETKDGv3 conformers, and MOL interchange ready.'
-              : 'Service connected.',
+          pyscfAvailable,
+          pyscfVersion: pyscf?.version ?? null,
+          detail: 'RDKit, OpenMM, and PySCF scientific adapters connected.',
         },
       });
       if (openmmAvailable) {
         await get().loadSimulationPresets();
+      }
+      if (pyscfAvailable) {
+        await get().loadQuantumPresets();
       }
     } catch {
       set({
@@ -757,8 +809,10 @@ export const useLabStore = create<LabState>((set, get) => ({
           rdkitVersion: null,
           openmmAvailable: false,
           openmmVersion: null,
+          pyscfAvailable: false,
+          pyscfVersion: null,
           detail:
-            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit and OpenMM actions are disabled.',
+            'Local structure editing and JSON project save/load remain available. Service-dependent RDKit, OpenMM, and PySCF actions are disabled.',
         },
       });
     }
@@ -806,6 +860,8 @@ export const useLabStore = create<LabState>((set, get) => ({
             rdkitVersion: null,
             openmmAvailable: false,
             openmmVersion: null,
+            pyscfAvailable: false,
+            pyscfVersion: null,
             detail:
               'Lost connection to Science API. Local editing and JSON save/load remain available.',
           },
@@ -1276,4 +1332,142 @@ export const useLabStore = create<LabState>((set, get) => ({
 
   resetTrajectoryPlayback: () =>
     set({ playbackFrameIndex: 0, isPlayingTrajectory: false }),
+
+  loadQuantumPresets: async () => {
+    try {
+      const presets = await listQuantumPresets();
+      set((state) => {
+        const selected =
+          presets.find((p) => p.id === state.quantumConfig.modelPresetId) ?? presets[0];
+        if (!selected) return { quantumPresets: presets };
+        return {
+          quantumPresets: presets,
+          quantumConfig: {
+            ...state.quantumConfig,
+            modelPresetId: selected.id,
+            modelPresetVersion: selected.version,
+          },
+        };
+      });
+    } catch {
+      // Offline
+    }
+  },
+
+  selectQuantumPreset: (presetId) =>
+    set((state) => {
+      const found = state.quantumPresets.find((p) => p.id === presetId);
+      if (!found) return {};
+      return {
+        quantumConfig: {
+          ...state.quantumConfig,
+          modelPresetId: found.id,
+          modelPresetVersion: found.version,
+        },
+      };
+    }),
+
+  setQuantumComputeFields: (computeFields) =>
+    set((state) => ({
+      quantumConfig: { ...state.quantumConfig, computeFields },
+    })),
+
+  setQuantumFieldOverlay: (quantumFieldOverlay) => set({ quantumFieldOverlay }),
+
+  runQuantumCalculation: async () => {
+    clearActiveQuantumPollTimer();
+    const state = get();
+    const submittedMolecule = cloneMolecule(state.molecule);
+    const config: QuantumJobConfig = {
+      ...state.quantumConfig,
+      initialStructureRevisionId: submittedMolecule.revisionId,
+    };
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `qc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    set({
+      isScienceBusy: true,
+      quantumConfig: config,
+      activeQuantumResults: null,
+    });
+
+    const pollQc = async (jobId: string) => {
+      try {
+        const job = await getQuantumJobStatus(jobId);
+        set({ activeQuantumJob: job });
+        if (job.status === 'queued' || job.status === 'running' || job.status === 'cancelling') {
+          activeQuantumPollTimer = setTimeout(() => {
+            void pollQc(jobId);
+          }, 220);
+          return;
+        }
+        const results = await getQuantumResults(jobId);
+        set({
+          isScienceBusy: false,
+          activeQuantumJob: job,
+          activeQuantumResults: results,
+          statusBanner: {
+            kind: results.converged ? 'info' : 'warning',
+            message:
+              job.status === 'completed'
+                ? `PySCF ${results.method}/${results.basisSet}: E = ${results.totalEnergyHartree?.toFixed(6) ?? '—'} Eh (${results.converged ? 'converged' : 'unconverged'}).`
+                : `Quantum job ${job.status}: ${job.errorMessage ?? 'see panel.'}`,
+          },
+        });
+      } catch (err) {
+        set({
+          isScienceBusy: false,
+          statusBanner: {
+            kind: 'error',
+            message:
+              err instanceof Error ? err.message : 'Lost connection while polling quantum job.',
+          },
+        });
+      }
+    };
+
+    try {
+      const job = await submitQuantumJob(submittedMolecule, config, idempotencyKey);
+      set({
+        activeQuantumJob: job,
+        statusBanner: {
+          kind: 'info',
+          message: `Submitted PySCF job ${job.jobId} (revision ${submittedMolecule.revisionId}).`,
+        },
+      });
+      await pollQc(job.jobId);
+    } catch (err) {
+      set({
+        isScienceBusy: false,
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Quantum job submission failed.',
+        },
+      });
+    }
+  },
+
+  cancelActiveQuantumJob: async () => {
+    const job = get().activeQuantumJob;
+    if (!job) return;
+    try {
+      const updated = await cancelQuantumJob(job.jobId);
+      set({
+        activeQuantumJob: updated,
+        statusBanner: {
+          kind: 'warning',
+          message: `Cancellation requested for quantum job ${updated.jobId}.`,
+        },
+      });
+    } catch (err) {
+      set({
+        statusBanner: {
+          kind: 'error',
+          message: err instanceof Error ? err.message : 'Failed to cancel quantum job.',
+        },
+      });
+    }
+  },
 }));

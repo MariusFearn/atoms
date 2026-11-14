@@ -437,4 +437,185 @@ describe('MatterLab Web Application', () => {
       );
     }
   });
+
+  it('supports Quantum (PySCF) workspace results, orbital table, and distinct field overlay selection', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/capabilities')) {
+        return new Response(
+          JSON.stringify({
+            api_version: '0.1.0',
+            adapters: [
+              {
+                adapter: 'rdkit',
+                available: true,
+                version: '2026.9.2',
+                supported_elements: ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl', 'Br', 'I'],
+                supported_operations: [],
+                limitations: [],
+              },
+              {
+                adapter: 'openmm',
+                available: true,
+                version: '8.6.1',
+                supported_elements: ['H', 'O'],
+                supported_operations: [],
+                limitations: [],
+              },
+              {
+                adapter: 'pyscf',
+                available: true,
+                version: '2.15.0',
+                supported_elements: ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl', 'Br', 'I'],
+                supported_operations: ['single_point_rhf'],
+                limitations: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/experiments/presets')) {
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/api/v1/quantum/presets')) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: 'pyscf-rhf-631g',
+              version: '1',
+              name: 'RHF / 6-31G (Split-Valence Hartree-Fock)',
+              category: 'quantum-chemistry',
+              engine: 'PySCF',
+              engine_version: '2.15.0',
+              method: 'RHF',
+              basis_set: '6-31g',
+              max_atoms: 16,
+              max_scf_cycles: 60,
+              assumptions: ['Gas-phase closed-shell singlet'],
+              limitations: ['Finite basis set'],
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/quantum/jobs')) {
+        return new Response(
+          JSON.stringify({
+            job_id: 'qc-water1',
+            status: 'completed',
+            model_preset_id: 'pyscf-rhf-631g',
+            model_preset_version: '1',
+            initial_structure_revision_id: useLabStore.getState().molecule.revisionId,
+            scf_cycles_completed: 8,
+            max_scf_cycles: 60,
+            converged: true,
+            created_at_iso: '2026-11-14T21:00:00Z',
+            updated_at_iso: '2026-11-14T21:00:01Z',
+            error_code: null,
+            error_message: null,
+            status_url: '/api/v1/quantum/jobs/qc-water1',
+            results_url: '/api/v1/quantum/jobs/qc-water1/results',
+          }),
+          { status: 202, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/quantum/jobs/qc-water1')) {
+        return new Response(
+          JSON.stringify({
+            job_id: 'qc-water1',
+            status: 'completed',
+            model_preset_id: 'pyscf-rhf-631g',
+            model_preset_version: '1',
+            initial_structure_revision_id: useLabStore.getState().molecule.revisionId,
+            scf_cycles_completed: 8,
+            max_scf_cycles: 60,
+            converged: true,
+            created_at_iso: '2026-11-14T21:00:00Z',
+            updated_at_iso: '2026-11-14T21:00:01Z',
+            error_code: null,
+            error_message: null,
+            status_url: '/api/v1/quantum/jobs/qc-water1',
+            results_url: '/api/v1/quantum/jobs/qc-water1/results',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/api/v1/quantum/jobs/qc-water1/results')) {
+        return new Response(
+          JSON.stringify({
+            job_id: 'qc-water1',
+            status: 'completed',
+            engine: 'PySCF',
+            engine_version: '2.15.0',
+            method: 'RHF',
+            basis_set: '6-31g',
+            charge_e: 0,
+            spin_multiplicity: 1,
+            converged: true,
+            scf_cycles: 8,
+            total_energy_hartree: -75.983993,
+            total_energy_kj_mol: -199495.97,
+            energy_basis: 'mole-of-systems',
+            homo_energy_hartree: -0.501378,
+            lumo_energy_hartree: 0.203757,
+            homo_lumo_gap_ev: 19.1877,
+            dipole_moment_debye: [0, 2.6303, 0],
+            dipole_magnitude_debye: 2.6303,
+            orbitals: [
+              { index: 4, label: 'HOMO', occupancy: 2.0, energy_hartree: -0.501378, energy_ev: -13.6432 },
+              { index: 5, label: 'LUMO', occupancy: 0.0, energy_hartree: 0.203757, energy_ev: 5.5445 },
+            ],
+            homo_orbital_field: {
+              field_kind: 'orbital-amplitude-and-phase',
+              orbital_label: 'HOMO',
+              orbital_index: 4,
+              isovalue: 0.04,
+              unit: 'bohr^-3/2',
+              samples: [{ position_angstrom: [0, 0, 0.5], value: 0.12 }],
+            },
+            electron_density_field: {
+              field_kind: 'total-electron-density',
+              isovalue: 0.015,
+              unit: 'e/bohr^3',
+              samples: [{ position_angstrom: [0, 0, 0.5], value: 0.08 }],
+            },
+            input_structure_revision_id: useLabStore.getState().molecule.revisionId,
+            input_structure_hash_sha256: 'hash123',
+            assumptions: ['Gas-phase closed-shell'],
+            limitations: ['Finite basis'],
+            warnings: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      render(<App />);
+      await waitFor(() => {
+        expect(useLabStore.getState().serviceStatus.pyscfAvailable).toBe(true);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /^Quantum/i }));
+      expect(screen.getByText(/PySCF Method & Basis/i)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /Run PySCF Single-Point/i }));
+      await waitFor(() => {
+        expect(screen.getByText('-75.983993 Eh')).toBeInTheDocument();
+        expect(screen.getByText('SCF Converged')).toBeInTheDocument();
+      });
+
+      const overlaySelect = screen.getByLabelText('Displayed Scalar Quantity');
+      fireEvent.change(overlaySelect, { target: { value: 'electron-density' } });
+      expect(useLabStore.getState().quantumFieldOverlay).toBe('electron-density');
+    } finally {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.reject(new Error('Offline in test environment'))),
+      );
+    }
+  });
 });

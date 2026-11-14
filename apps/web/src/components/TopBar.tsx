@@ -176,6 +176,14 @@ export const TopBar: React.FC<TopBarProps> = ({ onRequestProtectedAction }) => {
         >
           Experiment <span className="tab-tag">OpenMM</span>
         </button>
+        <button
+          type="button"
+          className={`tab-btn ${workspaceTab === 'quantum' ? 'is-active' : ''}`}
+          onClick={() => setWorkspaceTab('quantum')}
+          title="Single-Point Quantum Chemistry (PySCF)"
+        >
+          Quantum <span className="tab-tag">PySCF</span>
+        </button>
       </nav>
 
       <div className="topbar-section topbar-actions">

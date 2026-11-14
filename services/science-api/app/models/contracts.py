@@ -19,7 +19,12 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     service: str
     version: str
-    mode: Literal["rdkit-openmm-enabled", "rdkit-enabled", "prototype-scaffold"]
+    mode: Literal[
+        "rdkit-openmm-pyscf-enabled",
+        "rdkit-openmm-enabled",
+        "rdkit-enabled",
+        "prototype-scaffold",
+    ]
 
 
 class AdapterCapability(BaseModel):
@@ -330,4 +335,106 @@ class ExperimentResultsDto(BaseModel):
     atom_ids: list[str]
     frames: list[TrajectoryFrameDto]
     reproducibility: ReproducibilityRecordDto
+    warnings: list[str] = Field(default_factory=list)
+
+
+# --- Milestone 5: Quantum Chemistry (PySCF) Contracts ---
+
+
+class QuantumPresetDto(BaseModel):
+    id: str
+    version: str
+    name: str
+    category: Literal["quantum-chemistry"]
+    engine: Literal["PySCF"]
+    engine_version: str | None
+    method: str
+    basis_set: str
+    max_atoms: int
+    max_scf_cycles: int
+    assumptions: list[str]
+    limitations: list[str]
+
+
+class QuantumJobCreateRequest(BaseModel):
+    model_preset_id: str = Field(min_length=1)
+    model_preset_version: str = Field(min_length=1)
+    initial_structure_revision_id: str = Field(min_length=1)
+    molecule: MoleculeInput
+    compute_fields: bool = True
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class QuantumJobDto(BaseModel):
+    job_id: str
+    status: JobStatusLiteral
+    model_preset_id: str
+    model_preset_version: str
+    initial_structure_revision_id: str
+    scf_cycles_completed: int
+    max_scf_cycles: int
+    converged: bool | None = None
+    created_at_iso: str
+    updated_at_iso: str
+    error_code: str | None = None
+    error_message: str | None = None
+    status_url: str
+    results_url: str
+
+
+class QuantumScalarSampleDto(BaseModel):
+    position_angstrom: tuple[float, float, float]
+    value: float
+
+
+class QuantumOrbitalAmplitudeFieldDto(BaseModel):
+    field_kind: Literal["orbital-amplitude-and-phase"]
+    orbital_label: str
+    orbital_index: int
+    isovalue: float
+    unit: Literal["bohr^-3/2"]
+    samples: list[QuantumScalarSampleDto]
+
+
+class QuantumElectronDensityFieldDto(BaseModel):
+    field_kind: Literal["total-electron-density"]
+    isovalue: float
+    unit: Literal["e/bohr^3"]
+    samples: list[QuantumScalarSampleDto]
+
+
+class QuantumOrbitalEnergyDto(BaseModel):
+    index: int
+    label: str
+    occupancy: float
+    energy_hartree: float
+    energy_ev: float
+
+
+class QuantumResultsDto(BaseModel):
+    job_id: str
+    status: JobStatusLiteral
+    engine: Literal["PySCF"]
+    engine_version: str
+    method: str
+    basis_set: str
+    charge_e: int
+    spin_multiplicity: int
+    converged: bool
+    scf_cycles: int
+    total_energy_hartree: float | None = None
+    total_energy_kj_mol: float | None = None
+    energy_basis: Literal["mole-of-systems"]
+    homo_energy_hartree: float | None = None
+    lumo_energy_hartree: float | None = None
+    homo_lumo_gap_ev: float | None = None
+    dipole_moment_debye: tuple[float, float, float] | None = None
+    dipole_magnitude_debye: float | None = None
+    orbitals: list[QuantumOrbitalEnergyDto] = Field(default_factory=list)
+    homo_orbital_field: QuantumOrbitalAmplitudeFieldDto | None = None
+    electron_density_field: QuantumElectronDensityFieldDto | None = None
+    input_structure_revision_id: str
+    input_structure_hash_sha256: str
+    assumptions: list[str]
+    limitations: list[str]
     warnings: list[str] = Field(default_factory=list)

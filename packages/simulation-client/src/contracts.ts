@@ -6,6 +6,10 @@ import type {
   ExperimentJobInfo,
   ExperimentResults,
   Molecule,
+  QuantumJobConfig,
+  QuantumJobInfo,
+  QuantumModelPreset,
+  QuantumResults,
   SimulationJobStatus,
   SimulationModelPreset,
 } from '@matterlab/domain';
@@ -485,6 +489,197 @@ export function fromApiResultsDto(dto: ApiExperimentResultsDto): ExperimentResul
       timeUnit: rep.time_unit,
       temperatureUnit: rep.temperature_unit,
     },
+    warnings: dto.warnings,
+  };
+}
+
+// --- Milestone 5: Quantum Chemistry (PySCF) DTOs & Mappers ---
+
+export interface ApiQuantumPresetDto {
+  id: string;
+  version: string;
+  name: string;
+  category: 'quantum-chemistry';
+  engine: 'PySCF';
+  engine_version: string | null;
+  method: string;
+  basis_set: string;
+  max_atoms: number;
+  max_scf_cycles: number;
+  assumptions: string[];
+  limitations: string[];
+}
+
+export interface ApiQuantumJobDto {
+  job_id: string;
+  status: SimulationJobStatus;
+  model_preset_id: string;
+  model_preset_version: string;
+  initial_structure_revision_id: string;
+  scf_cycles_completed: number;
+  max_scf_cycles: number;
+  converged: boolean | null;
+  created_at_iso: string;
+  updated_at_iso: string;
+  error_code: string | null;
+  error_message: string | null;
+  status_url: string;
+  results_url: string;
+}
+
+export interface ApiQuantumResultsDto {
+  job_id: string;
+  status: SimulationJobStatus;
+  engine: 'PySCF';
+  engine_version: string;
+  method: string;
+  basis_set: string;
+  charge_e: number;
+  spin_multiplicity: number;
+  converged: boolean;
+  scf_cycles: number;
+  total_energy_hartree: number | null;
+  total_energy_kj_mol: number | null;
+  energy_basis: 'mole-of-systems';
+  homo_energy_hartree: number | null;
+  lumo_energy_hartree: number | null;
+  homo_lumo_gap_ev: number | null;
+  dipole_moment_debye: [number, number, number] | null;
+  dipole_magnitude_debye: number | null;
+  orbitals: Array<{
+    index: number;
+    label: string;
+    occupancy: number;
+    energy_hartree: number;
+    energy_ev: number;
+  }>;
+  homo_orbital_field: {
+    field_kind: 'orbital-amplitude-and-phase';
+    orbital_label: string;
+    orbital_index: number;
+    isovalue: number;
+    unit: 'bohr^-3/2';
+    samples: Array<{ position_angstrom: [number, number, number]; value: number }>;
+  } | null;
+  electron_density_field: {
+    field_kind: 'total-electron-density';
+    isovalue: number;
+    unit: 'e/bohr^3';
+    samples: Array<{ position_angstrom: [number, number, number]; value: number }>;
+  } | null;
+  input_structure_revision_id: string;
+  input_structure_hash_sha256: string;
+  assumptions: string[];
+  limitations: string[];
+  warnings: string[];
+}
+
+export function fromApiQuantumPresetDto(dto: ApiQuantumPresetDto): QuantumModelPreset {
+  return {
+    id: dto.id,
+    version: dto.version,
+    name: dto.name,
+    category: dto.category,
+    engine: dto.engine,
+    engineVersion: dto.engine_version,
+    method: dto.method,
+    basisSet: dto.basis_set,
+    maxAtoms: dto.max_atoms,
+    maxScfCycles: dto.max_scf_cycles,
+    assumptions: dto.assumptions,
+    limitations: dto.limitations,
+  };
+}
+
+export function toApiQuantumJobRequestDto(
+  molecule: Molecule,
+  config: QuantumJobConfig,
+  idempotencyKey: string,
+) {
+  return {
+    model_preset_id: config.modelPresetId,
+    model_preset_version: config.modelPresetVersion,
+    initial_structure_revision_id: config.initialStructureRevisionId,
+    molecule: toApiMoleculeDto(molecule),
+    compute_fields: config.computeFields,
+    idempotency_key: idempotencyKey,
+  };
+}
+
+export function fromApiQuantumJobDto(dto: ApiQuantumJobDto): QuantumJobInfo {
+  return {
+    jobId: dto.job_id,
+    status: dto.status,
+    modelPresetId: dto.model_preset_id,
+    modelPresetVersion: dto.model_preset_version,
+    initialStructureRevisionId: dto.initial_structure_revision_id,
+    scfCyclesCompleted: dto.scf_cycles_completed,
+    maxScfCycles: dto.max_scf_cycles,
+    converged: dto.converged,
+    createdAtIso: dto.created_at_iso,
+    updatedAtIso: dto.updated_at_iso,
+    errorCode: dto.error_code,
+    errorMessage: dto.error_message,
+    statusUrl: dto.status_url,
+    resultsUrl: dto.results_url,
+  };
+}
+
+export function fromApiQuantumResultsDto(dto: ApiQuantumResultsDto): QuantumResults {
+  return {
+    jobId: dto.job_id,
+    status: dto.status,
+    engine: dto.engine,
+    engineVersion: dto.engine_version,
+    method: dto.method,
+    basisSet: dto.basis_set,
+    chargeE: dto.charge_e,
+    spinMultiplicity: dto.spin_multiplicity,
+    converged: dto.converged,
+    scfCycles: dto.scf_cycles,
+    totalEnergyHartree: dto.total_energy_hartree,
+    totalEnergyKjMol: dto.total_energy_kj_mol,
+    energyBasis: dto.energy_basis,
+    homoEnergyHartree: dto.homo_energy_hartree,
+    lumoEnergyHartree: dto.lumo_energy_hartree,
+    homoLumoGapEv: dto.homo_lumo_gap_ev,
+    dipoleMomentDebye: dto.dipole_moment_debye,
+    dipoleMagnitudeDebye: dto.dipole_magnitude_debye,
+    orbitals: dto.orbitals.map((o) => ({
+      index: o.index,
+      label: o.label,
+      occupancy: o.occupancy,
+      energyHartree: o.energy_hartree,
+      energyEv: o.energy_ev,
+    })),
+    homoOrbitalField: dto.homo_orbital_field
+      ? {
+          fieldKind: dto.homo_orbital_field.field_kind,
+          orbitalLabel: dto.homo_orbital_field.orbital_label,
+          orbitalIndex: dto.homo_orbital_field.orbital_index,
+          isovalue: dto.homo_orbital_field.isovalue,
+          unit: dto.homo_orbital_field.unit,
+          samples: dto.homo_orbital_field.samples.map((s) => ({
+            positionAngstrom: s.position_angstrom,
+            value: s.value,
+          })),
+        }
+      : null,
+    electronDensityField: dto.electron_density_field
+      ? {
+          fieldKind: dto.electron_density_field.field_kind,
+          isovalue: dto.electron_density_field.isovalue,
+          unit: dto.electron_density_field.unit,
+          samples: dto.electron_density_field.samples.map((s) => ({
+            positionAngstrom: s.position_angstrom,
+            value: s.value,
+          })),
+        }
+      : null,
+    inputStructureRevisionId: dto.input_structure_revision_id,
+    inputStructureHashSha256: dto.input_structure_hash_sha256,
+    assumptions: dto.assumptions,
+    limitations: dto.limitations,
     warnings: dto.warnings,
   };
 }

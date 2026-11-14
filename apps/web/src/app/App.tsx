@@ -7,6 +7,7 @@ import { TopBar } from '../components/TopBar';
 import { LabSceneViewport } from '../scene/LabSceneViewport';
 import { useLabStore } from '../state/useLabStore';
 import { ExperimentWorkspace } from '../workspaces/experiment/ExperimentWorkspace';
+import { QuantumWorkspace } from '../workspaces/quantum/QuantumWorkspace';
 
 interface PendingConfirm {
   title: string;
@@ -91,6 +92,8 @@ export const App: React.FC = () => {
           </>
         ) : workspaceTab === 'experiment' ? (
           <ExperimentWorkspace onRequestProtectedAction={requestProtectedAction} />
+        ) : workspaceTab === 'quantum' ? (
+          <QuantumWorkspace />
         ) : (
           <section className="deferred-workspace" aria-label="Deferred Workspace">
             <div className="deferred-card">

@@ -3,6 +3,10 @@ import type {
   ExperimentJobInfo,
   ExperimentResults,
   Molecule,
+  QuantumJobConfig,
+  QuantumJobInfo,
+  QuantumModelPreset,
+  QuantumResults,
   SimulationModelPreset,
 } from '@matterlab/domain';
 import {
@@ -13,6 +17,9 @@ import {
   type ApiExperimentResultsDto,
   type ApiMolExportResponseDto,
   type ApiMolImportResponseDto,
+  type ApiQuantumJobDto,
+  type ApiQuantumPresetDto,
+  type ApiQuantumResultsDto,
   type ApiSimulationPresetDto,
   type ApiValidationResponseDto,
   type RdkitConformerResult,
@@ -20,9 +27,13 @@ import {
   fromApiJobDto,
   fromApiMoleculeDto,
   fromApiPresetDto,
+  fromApiQuantumJobDto,
+  fromApiQuantumPresetDto,
+  fromApiQuantumResultsDto,
   fromApiResultsDto,
   toApiExperimentRequestDto,
   toApiMoleculeDto,
+  toApiQuantumJobRequestDto,
 } from './contracts.js';
 
 export class ScienceApiError extends Error {
@@ -316,4 +327,68 @@ export async function getExperimentResults(
     options,
   );
   return fromApiResultsDto(dto);
+}
+
+export async function listQuantumPresets(
+  options?: ScienceClientOptions,
+): Promise<QuantumModelPreset[]> {
+  const dtos = await requestJson<ApiQuantumPresetDto[]>(
+    '/api/v1/quantum/presets',
+    { method: 'GET' },
+    options,
+  );
+  return dtos.map(fromApiQuantumPresetDto);
+}
+
+export async function submitQuantumJob(
+  molecule: Molecule,
+  config: QuantumJobConfig,
+  idempotencyKey: string,
+  options?: ScienceClientOptions,
+): Promise<QuantumJobInfo> {
+  const dto = await requestJson<ApiQuantumJobDto>(
+    '/api/v1/quantum/jobs',
+    {
+      method: 'POST',
+      body: JSON.stringify(toApiQuantumJobRequestDto(molecule, config, idempotencyKey)),
+    },
+    options,
+  );
+  return fromApiQuantumJobDto(dto);
+}
+
+export async function getQuantumJobStatus(
+  jobId: string,
+  options?: ScienceClientOptions,
+): Promise<QuantumJobInfo> {
+  const dto = await requestJson<ApiQuantumJobDto>(
+    `/api/v1/quantum/jobs/${encodeURIComponent(jobId)}`,
+    { method: 'GET' },
+    options,
+  );
+  return fromApiQuantumJobDto(dto);
+}
+
+export async function cancelQuantumJob(
+  jobId: string,
+  options?: ScienceClientOptions,
+): Promise<QuantumJobInfo> {
+  const dto = await requestJson<ApiQuantumJobDto>(
+    `/api/v1/quantum/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: 'POST' },
+    options,
+  );
+  return fromApiQuantumJobDto(dto);
+}
+
+export async function getQuantumResults(
+  jobId: string,
+  options?: ScienceClientOptions,
+): Promise<QuantumResults> {
+  const dto = await requestJson<ApiQuantumResultsDto>(
+    `/api/v1/quantum/jobs/${encodeURIComponent(jobId)}/results`,
+    { method: 'GET' },
+    options,
+  );
+  return fromApiQuantumResultsDto(dto);
 }

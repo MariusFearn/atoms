@@ -10,10 +10,10 @@ def test_health() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["mode"] == "rdkit-openmm-enabled"
+    assert payload["mode"] == "rdkit-openmm-pyscf-enabled"
 
 
-def test_capabilities_honestly_reports_rdkit_and_openmm() -> None:
+def test_capabilities_honestly_reports_rdkit_openmm_and_pyscf() -> None:
     response = client.get("/api/v1/capabilities")
     assert response.status_code == 200
     payload = response.json()
@@ -25,6 +25,9 @@ def test_capabilities_honestly_reports_rdkit_and_openmm() -> None:
     assert adapters["openmm"]["available"] is True
     assert adapters["openmm"]["version"] is not None
     assert "tip3p-water-nvt" in adapters["openmm"]["supported_operations"]
+    assert adapters["pyscf"]["available"] is True
+    assert adapters["pyscf"]["version"] is not None
+    assert "single_point_rhf" in adapters["pyscf"]["supported_operations"]
 
 
 def test_elements_baseline() -> None:

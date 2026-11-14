@@ -517,6 +517,14 @@ select:focus-visible {
   background: var(--accent-dim);
 }
 
+.qc-checkbox-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 /* Sidebars */
 .sidebar {
   width: 295px;

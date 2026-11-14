@@ -16,8 +16,9 @@ This project uses open-source libraries and curated scientific reference dataset
 - **Pydantic** — MIT License
 - **Uvicorn** — BSD-3-Clause License
 - **RDKit** (`rdkit`) — BSD-3-Clause License
-- **OpenMM** (`openmm`, including `amber14/tip3p.xml` force-field parameters) — MIT / LGPL Licenses
-- **NumPy / Pillow** (transitive RDKit dependencies) — BSD-3-Clause / HPND Licenses
+- **OpenMM** (`openmm[cuda12]`, including `amber14/tip3p.xml` and NVIDIA CUDA 12 runtime packages) — MIT / LGPL / NVIDIA CUDA EULA Licenses
+- **PySCF** (`pyscf`, `scipy`, `h5py`) — Apache-2.0 / BSD-3-Clause Licenses
+- **NumPy / Pillow** (transitive dependencies) — BSD-3-Clause / HPND Licenses
 - **pytest / httpx** — MIT / BSD-3-Clause Licenses (dev tooling)
 
 ## Curated Scientific Reference Data (`packages/domain/src/elements.ts`)

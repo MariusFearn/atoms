@@ -429,11 +429,34 @@ def validate_experiment_request(req: ExperimentCreateRequest) -> ValidatedWaterS
     )
 
 
-def _select_platform() -> openmm.Platform:
-    names = [openmm.Platform.getPlatform(i).getName() for i in range(openmm.Platform.getNumPlatforms())]
-    if "CPU" in names:
-        return openmm.Platform.getPlatformByName("CPU")
-    return openmm.Platform.getPlatformByName("Reference")
+def _create_simulation_with_best_platform(
+    topology: mm_app.Topology,
+    system: openmm.System,
+    integrator: openmm.Integrator,
+) -> tuple[mm_app.Simulation, openmm.Platform, str]:
+    available = {
+        openmm.Platform.getPlatform(i).getName()
+        for i in range(openmm.Platform.getNumPlatforms())
+    }
+    for candidate in ("CUDA", "CPU", "Reference"):
+        if candidate not in available:
+            continue
+        try:
+            platform = openmm.Platform.getPlatformByName(candidate)
+            sim = mm_app.Simulation(topology, system, integrator, platform)
+            label = platform.getName()
+            if candidate == "CUDA":
+                try:
+                    dev_name = platform.getPropertyValue(sim.context, "DeviceName")
+                    if dev_name:
+                        label = f"CUDA ({dev_name})"
+                except Exception:
+                    pass
+            return sim, platform, label
+        except Exception:
+            continue
+    platform = openmm.Platform.getPlatformByName("Reference")
+    return mm_app.Simulation(topology, system, integrator, platform), platform, platform.getName()
 
 
 def run_water_simulation(
@@ -474,15 +497,16 @@ def run_water_simulation(
     else:
         integrator = openmm.VerletIntegrator(dt_ps * mm_unit.picoseconds)
 
-    platform = _select_platform()
-    simulation = mm_app.Simulation(setup.topology, system, integrator, platform)
+    simulation, platform, platform_label = _create_simulation_with_best_platform(
+        setup.topology, system, integrator
+    )
     precision = "mixed"
     try:
         precision = str(platform.getPropertyValue(simulation.context, "Precision"))
     except Exception:
         precision = "default"
     if on_initialized is not None:
-        on_initialized(dof, platform.getName(), precision)
+        on_initialized(dof, platform_label, precision)
     simulation.context.setPositions(setup.positions_nm * mm_unit.nanometers)
 
     if setup.minimize_before_run:
@@ -571,7 +595,7 @@ def run_water_simulation(
         ensemble=setup.preset.dto.ensemble,
         engine="OpenMM",
         engine_version=openmm_version(),
-        platform_name=platform.getName(),
+        platform_name=platform_label,
         numerical_precision=str(precision),
         random_seed=setup.random_seed,
         degrees_of_freedom=dof,
