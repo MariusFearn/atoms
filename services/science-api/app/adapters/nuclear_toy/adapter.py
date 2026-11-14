@@ -15,9 +15,12 @@ from app.models.contracts import (
 )
 
 NUCLEAR_COULOMB_KE_E2_MEV_FM = 1.439964547842567
+NUCLEAR_DIPOLE_CONST_MEV_FM3 = 0.0159209
 PROTON_MASS_MEV_C2 = 938.27208816
 NEUTRON_MASS_MEV_C2 = 939.56542052
 ALPHA_MASS_MEV_C2 = 3727.3794066
+PROTON_MU_N = 2.792847
+NEUTRON_MU_N = -1.913043
 GRAVITY_MEV_FM_PER_MEV2 = 1.32379424e-42
 
 R_SINGULARITY_FLOOR_FM = 0.08
@@ -64,6 +67,7 @@ def _presets_map() -> dict[str, NuclearPresetDto]:
                     mass_mev_c2=ALPHA_MASS_MEV_C2,
                     position_fm=(-1.7, 0.0, 0.0),
                     velocity_c=(-0.034, 0.0, 0.0),
+                    dipole_direction=(1.0, 0.0, 0.0),
                 ),
                 NuclearParticleInput(
                     id="a2",
@@ -73,6 +77,7 @@ def _presets_map() -> dict[str, NuclearPresetDto]:
                     mass_mev_c2=ALPHA_MASS_MEV_C2,
                     position_fm=(1.7, 0.0, 0.0),
                     velocity_c=(0.034, 0.0, 0.0),
+                    dipole_direction=(-1.0, 0.0, 0.0),
                 ),
             ],
             cluster_edges=[("a1", "a2")],
@@ -100,6 +105,7 @@ def _presets_map() -> dict[str, NuclearPresetDto]:
                     mass_mev_c2=ALPHA_MASS_MEV_C2,
                     position_fm=(c12_r, 0.0, 0.0),
                     velocity_c=(0.0, 0.012, 0.0),
+                    dipole_direction=(0.0, 1.0, 0.0),
                 ),
                 NuclearParticleInput(
                     id="a2",
@@ -109,6 +115,7 @@ def _presets_map() -> dict[str, NuclearPresetDto]:
                     mass_mev_c2=ALPHA_MASS_MEV_C2,
                     position_fm=(-0.5 * c12_r, (math.sqrt(3.0) / 2.0) * c12_r, 0.0),
                     velocity_c=(-0.01, -0.006, 0.0),
+                    dipole_direction=(-math.sqrt(3.0) / 2.0, -0.5, 0.0),
                 ),
                 NuclearParticleInput(
                     id="a3",
@@ -118,6 +125,7 @@ def _presets_map() -> dict[str, NuclearPresetDto]:
                     mass_mev_c2=ALPHA_MASS_MEV_C2,
                     position_fm=(-0.5 * c12_r, -(math.sqrt(3.0) / 2.0) * c12_r, 0.0),
                     velocity_c=(0.01, -0.006, 0.0),
+                    dipole_direction=(math.sqrt(3.0) / 2.0, -0.5, 0.0),
                 ),
             ],
             cluster_edges=[("a1", "a2"), ("a2", "a3"), ("a3", "a1")],
@@ -401,17 +409,20 @@ def _compute_forces_and_energies(
     positions: np.ndarray,
     charges: np.ndarray,
     masses: np.ndarray,
+    dipole_moments: np.ndarray,
     cfg: NuclearForceConfigInput,
-) -> tuple[np.ndarray, float, float, float, float, float]:
+) -> tuple[np.ndarray, float, float, float, float, float, float]:
     n = positions.shape[0]
     forces = np.zeros((n, 3), dtype=np.float64)
     coulomb_e = 0.0
     nuclear_e = 0.0
     gravity_e = 0.0
+    dipole_e = 0.0
     min_dist = float("inf")
     max_dist = 0.0
 
     g_mult = (10.0 ** cfg.gravity_log10_multiplier) if cfg.gravity_enabled else 0.0
+    dip_mult = (10.0 ** cfg.dipole_log10_multiplier) if cfg.dipole_enabled else 0.0
     inv_ra2 = 1.0 / (cfg.nuclear_attraction_range_fm ** 2)
     inv_rc2 = 1.0 / (cfg.core_repulsion_range_fm ** 2)
 
@@ -457,10 +468,26 @@ def _compute_forces_and_energies(
                 )
 
             f_vec = (f_coul_mag + f_nuc_mag + f_grav_mag) * unit
+
+            if dip_mult > 0.0:
+                mu1 = dipole_moments[i]
+                mu2 = dipole_moments[j]
+                k_eff = dip_mult * NUCLEAR_DIPOLE_CONST_MEV_FM3
+                m1_dot_m2 = float(np.dot(mu1, mu2))
+                m1_r = float(np.dot(mu1, unit))
+                m2_r = float(np.dot(mu2, unit))
+                dipole_e += (k_eff / (r_safe ** 3)) * (m1_dot_m2 - 3.0 * m1_r * m2_r)
+                f_dip = (3.0 * k_eff / (r_safe ** 4)) * (
+                    (m1_dot_m2 - 5.0 * m1_r * m2_r) * unit
+                    + m2_r * mu1
+                    + m1_r * mu2
+                )
+                f_vec = f_vec + f_dip
+
             forces[i] += f_vec
             forces[j] -= f_vec
 
-    return forces, coulomb_e, nuclear_e, gravity_e, min_dist, max_dist
+    return forces, coulomb_e, nuclear_e, gravity_e, dipole_e, min_dist, max_dist
 
 
 def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulationResultDto:
@@ -493,8 +520,23 @@ def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulation
     dt = cfg.timestep_fc
     gamma = cfg.damping_per_fc
 
-    forces, coul_e, nuc_e, grav_e, min_d, max_d = _compute_forces_and_energies(
-        positions, charges, masses, cfg
+    dip_vecs: list[list[float]] = []
+    for p in req.particles:
+        d = np.array(p.dipole_direction, dtype=np.float64)
+        d_norm = float(np.linalg.norm(d))
+        d_unit = d / d_norm if d_norm > 1e-12 else np.array([0.0, 0.0, 1.0])
+        mu_mag = (
+            PROTON_MU_N
+            if p.kind == "proton"
+            else NEUTRON_MU_N
+            if p.kind == "neutron"
+            else cfg.alpha_toy_dipole_mu
+        )
+        dip_vecs.append((d_unit * mu_mag).tolist())
+    dipole_moments = np.array(dip_vecs, dtype=np.float64)
+
+    forces, coul_e, nuc_e, grav_e, dip_e, min_d, max_d = _compute_forces_and_energies(
+        positions, charges, masses, dipole_moments, cfg
     )
     initial_max_d = max_d
     collapsed = min_d < COLLAPSE_DISTANCE_FM
@@ -508,11 +550,12 @@ def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulation
         c_e: float,
         n_e: float,
         g_e: float,
+        d_e: float,
         d_min: float,
         d_max: float,
     ) -> NuclearTrajectoryFrameDto:
         ke = float(0.5 * np.sum(masses[:, None] * (vel_arr * vel_arr)))
-        pe = c_e + n_e + g_e
+        pe = c_e + n_e + g_e + d_e
         tot = ke + pe
         return NuclearTrajectoryFrameDto(
             frame_index=frame_idx,
@@ -522,6 +565,7 @@ def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulation
             coulomb_energy_mev=round(c_e, 6),
             nuclear_energy_mev=round(n_e, 6),
             gravity_energy_mev=float(f"{g_e:.6e}"),
+            dipole_energy_mev=round(d_e, 6),
             potential_energy_mev=round(pe, 6),
             total_energy_mev=round(tot, 6),
             min_pair_distance_fm=round(d_min, 4),
@@ -537,7 +581,7 @@ def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulation
         )
 
     frames: list[NuclearTrajectoryFrameDto] = [
-        make_frame(0, 0, positions, velocities, forces, coul_e, nuc_e, grav_e, min_d, max_d)
+        make_frame(0, 0, positions, velocities, forces, coul_e, nuc_e, grav_e, dip_e, min_d, max_d)
     ]
 
     acc = forces / masses[:, None]
@@ -547,8 +591,8 @@ def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulation
         vel_half = velocities * damp_half + 0.5 * acc * dt
         positions = positions + vel_half * dt
 
-        forces, coul_e, nuc_e, grav_e, min_d, max_d = _compute_forces_and_energies(
-            positions, charges, masses, cfg
+        forces, coul_e, nuc_e, grav_e, dip_e, min_d, max_d = _compute_forces_and_energies(
+            positions, charges, masses, dipole_moments, cfg
         )
         if min_d < COLLAPSE_DISTANCE_FM:
             collapsed = True
@@ -568,6 +612,7 @@ def run_nuclear_toy_simulation(req: NuclearSimulateRequest) -> NuclearSimulation
                     coul_e,
                     nuc_e,
                     grav_e,
+                    dip_e,
                     min_d,
                     max_d,
                 )

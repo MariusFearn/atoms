@@ -81,7 +81,13 @@ describe('MatterLab Web Application', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Atom\s+Wave Lab$/i }));
     expect(screen.getByText(/3D Standing-Wave Orbital/i)).toBeInTheDocument();
     expect(screen.getByText(/Curated Hydrogenic Wave Model/i)).toBeInTheDocument();
-    expect(screen.getByText(/656\.3 nm/)).toBeInTheDocument();
+    expect(screen.getAllByText(/656\.470 nm/).length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.change(screen.getByLabelText('Hydrogen isotope for spectral shift'), {
+      target: { value: 'H-2' },
+    });
+    expect(screen.getAllByText(/656\.291 nm/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/-0\.1786 nm/).length).toBeGreaterThanOrEqual(1);
 
     fireEvent.change(screen.getByLabelText('Hydrogenic orbital'), {
       target: { value: '3dz2' },
@@ -721,6 +727,8 @@ describe('MatterLab Web Application', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /^Nuclear Sandbox/i }));
       expect(screen.getAllByText(/Exploratory Toy Model/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/Equivalence Principle Check/i)).toBeInTheDocument();
+      expect(screen.getByText(/Violates drop tests by/i)).toBeInTheDocument();
 
       // Custom builder: add a proton and then reset preset
       const initialCount = useLabStore.getState().nuclearParticles.length;

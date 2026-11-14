@@ -1,11 +1,15 @@
 export type NuclearParticleKind = 'proton' | 'neutron' | 'alpha';
 
 export const NUCLEAR_COULOMB_KE_E2_MEV_FM = 1.439964547842567;
+export const NUCLEAR_DIPOLE_CONST_MEV_FM3 = 0.0159209;
 export const PROTON_MASS_MEV_C2 = 938.27208816;
 export const NEUTRON_MASS_MEV_C2 = 939.56542052;
 export const ALPHA_MASS_MEV_C2 = 3727.3794066;
+export const PROTON_MU_N = 2.792847;
+export const NEUTRON_MU_N = -1.913043;
 export const MEV_PER_U = 931.49410242;
 export const FM_PER_C_SECONDS = 3.33564095198152e-24;
+export const EQUIVALENCE_PRINCIPLE_LIMIT_ETA = 1.5e-15;
 
 // G * (1 MeV/c^2)^2 in MeV * fm:
 // 1 MeV/c^2 = 1.7826619216e-30 kg; 1 MeV*fm = 1.602176634e-28 J*m
@@ -20,6 +24,7 @@ export interface NuclearParticle {
   massMevC2: number;
   positionFm: [number, number, number];
   velocityC: [number, number, number];
+  dipoleDirection?: [number, number, number];
 }
 
 export interface NuclearForceConfig {
@@ -30,6 +35,9 @@ export interface NuclearForceConfig {
   coreRepulsionRangeFm: number;
   gravityEnabled: boolean;
   gravityLog10Multiplier: number;
+  dipoleEnabled: boolean;
+  dipoleLog10Multiplier: number;
+  alphaToyDipoleMu: number;
   dampingPerFc: number;
   timestepFc: number;
   totalSteps: number;
@@ -73,6 +81,7 @@ export interface NuclearTrajectoryFrame {
   coulombEnergyMev: number;
   nuclearEnergyMev: number;
   gravityEnergyMev: number;
+  dipoleEnergyMev: number;
   potentialEnergyMev: number;
   totalEnergyMev: number;
   minPairDistanceFm: number;
@@ -112,6 +121,9 @@ export const DEFAULT_NUCLEAR_FORCE_CONFIG: NuclearForceConfig = {
   coreRepulsionRangeFm: 1.43,
   gravityEnabled: true,
   gravityLog10Multiplier: 0,
+  dipoleEnabled: false,
+  dipoleLog10Multiplier: 0,
+  alphaToyDipoleMu: 2.5,
   dampingPerFc: 0.0,
   timestepFc: 0.25,
   totalSteps: 400,
@@ -141,6 +153,7 @@ export const NUCLEAR_PRESETS: readonly NuclearClusterPreset[] = [
         massMevC2: ALPHA_MASS_MEV_C2,
         positionFm: [-1.7, 0, 0],
         velocityC: [-0.034, 0, 0],
+        dipoleDirection: [1, 0, 0],
       },
       {
         id: 'a2',
@@ -150,6 +163,7 @@ export const NUCLEAR_PRESETS: readonly NuclearClusterPreset[] = [
         massMevC2: ALPHA_MASS_MEV_C2,
         positionFm: [1.7, 0, 0],
         velocityC: [0.034, 0, 0],
+        dipoleDirection: [-1, 0, 0],
       },
     ],
     clusterEdges: [['a1', 'a2']],
@@ -178,6 +192,7 @@ export const NUCLEAR_PRESETS: readonly NuclearClusterPreset[] = [
         massMevC2: ALPHA_MASS_MEV_C2,
         positionFm: [C12_R_FM, 0, 0],
         velocityC: [0, 0.012, 0],
+        dipoleDirection: [0, 1, 0],
       },
       {
         id: 'a2',
@@ -187,6 +202,7 @@ export const NUCLEAR_PRESETS: readonly NuclearClusterPreset[] = [
         massMevC2: ALPHA_MASS_MEV_C2,
         positionFm: [-0.5 * C12_R_FM, (Math.sqrt(3) / 2) * C12_R_FM, 0],
         velocityC: [-0.01, -0.006, 0],
+        dipoleDirection: [-Math.sqrt(3) / 2, -0.5, 0],
       },
       {
         id: 'a3',
@@ -196,6 +212,7 @@ export const NUCLEAR_PRESETS: readonly NuclearClusterPreset[] = [
         massMevC2: ALPHA_MASS_MEV_C2,
         positionFm: [-0.5 * C12_R_FM, -(Math.sqrt(3) / 2) * C12_R_FM, 0],
         velocityC: [0.01, -0.006, 0],
+        dipoleDirection: [Math.sqrt(3) / 2, -0.5, 0],
       },
     ],
     clusterEdges: [
@@ -538,7 +555,112 @@ export const NUCLEAR_GUIDED_EXPERIMENTS: readonly NuclearGuidedExperiment[] = [
     whatToWatch:
       'Watch the obtuse chain bend and snap into an equilateral triangle as excess energy drains away—mirroring the Hoyle state decaying toward ground-state Carbon-12.',
   },
+  {
+    id: 'exp-magnetic-dipole-c12',
+    title: '5. Test Magnetic Dipole Balance (C-12)',
+    question:
+      'Can magnetic dipole-dipole forces (1/r⁴ force) lock 3 alphas in a triangle without short-range nuclear Velcro or a core bumper?',
+    presetId: 'c12-three-alpha',
+    forceOverrides: {
+      coulombScale: 1.0,
+      nuclearAttractionMev: 0,
+      coreRepulsionMev: 0,
+      gravityEnabled: false,
+      dipoleEnabled: true,
+      dipoleLog10Multiplier: 2.5,
+      alphaToyDipoleMu: 2.5,
+    },
+    whatToWatch:
+      'Even with a hypothetical α dipole boosted 10²·⁵× (real ground-state He-4 has spin 0 and μ = 0), 1/r³ dipole potential + 1/r Coulomb cannot form a stable equilibrium radius in 3D: the triangle either blows apart or collapses.',
+  },
 ];
+
+export interface MassDefectNuclideData {
+  id: string;
+  label: string;
+  protons: number;
+  neutrons: number;
+  bindingEnergyMev: number;
+  nuclearMassMevC2: number;
+  massDefectFraction: number;
+}
+
+export const MASS_DEFECT_NUCLIDES: readonly MassDefectNuclideData[] = [
+  {
+    id: 'H-1',
+    label: '¹H (Hydrogen, 1p)',
+    protons: 1,
+    neutrons: 0,
+    bindingEnergyMev: 0,
+    nuclearMassMevC2: PROTON_MASS_MEV_C2,
+    massDefectFraction: 0,
+  },
+  {
+    id: 'He-4',
+    label: '⁴He (Helium-4, 2p+2n)',
+    protons: 2,
+    neutrons: 2,
+    bindingEnergyMev: 28.296,
+    nuclearMassMevC2: ALPHA_MASS_MEV_C2,
+    massDefectFraction: 28.296 / (2 * PROTON_MASS_MEV_C2 + 2 * NEUTRON_MASS_MEV_C2),
+  },
+  {
+    id: 'C-12',
+    label: '¹²C (Carbon-12, 6p+6n)',
+    protons: 6,
+    neutrons: 6,
+    bindingEnergyMev: 92.162,
+    nuclearMassMevC2: 6 * PROTON_MASS_MEV_C2 + 6 * NEUTRON_MASS_MEV_C2 - 92.162,
+    massDefectFraction: 92.162 / (6 * PROTON_MASS_MEV_C2 + 6 * NEUTRON_MASS_MEV_C2),
+  },
+  {
+    id: 'Fe-56',
+    label: '⁵⁶Fe (Iron-56, 26p+30n)',
+    protons: 26,
+    neutrons: 30,
+    bindingEnergyMev: 492.258,
+    nuclearMassMevC2: 26 * PROTON_MASS_MEV_C2 + 30 * NEUTRON_MASS_MEV_C2 - 492.258,
+    massDefectFraction: 492.258 / (26 * PROTON_MASS_MEV_C2 + 30 * NEUTRON_MASS_MEV_C2),
+  },
+];
+
+export interface EquivalenceTestResult {
+  nuclideA: MassDefectNuclideData;
+  nuclideB: MassDefectNuclideData;
+  massDefectWeightFraction: number;
+  predictedDeltaGOverG: number;
+  experimentalLimitEta: number;
+  violationRatio: number;
+}
+
+export function evaluateMassDefectGravityHypothesis(
+  nuclideAId: string,
+  nuclideBId: string,
+  massDefectWeightFraction: number,
+): EquivalenceTestResult {
+  const nuclideA =
+    MASS_DEFECT_NUCLIDES.find((n) => n.id === nuclideAId) ?? MASS_DEFECT_NUCLIDES[0]!;
+  const nuclideB =
+    MASS_DEFECT_NUCLIDES.find((n) => n.id === nuclideBId) ?? MASS_DEFECT_NUCLIDES[3]!;
+
+  const w = Math.max(0, Math.min(1, massDefectWeightFraction));
+  // Effective gravitational-to-inertial mass ratio under hypothesis:
+  // (1 - w) * 1 + w * (defectFraction / refDefect)
+  const refDefect = MASS_DEFECT_NUCLIDES[3]!.massDefectFraction; // Fe-56 normalization
+  const gA = (1 - w) + w * (nuclideA.massDefectFraction / refDefect);
+  const gB = (1 - w) + w * (nuclideB.massDefectFraction / refDefect);
+  const avg = 0.5 * (gA + gB);
+  const predictedDeltaGOverG = avg > 0 ? Math.abs(gA - gB) / avg : 0;
+
+  return {
+    nuclideA,
+    nuclideB,
+    massDefectWeightFraction: w,
+    predictedDeltaGOverG,
+    experimentalLimitEta: EQUIVALENCE_PRINCIPLE_LIMIT_ETA,
+    violationRatio: predictedDeltaGOverG / EQUIVALENCE_PRINCIPLE_LIMIT_ETA,
+  };
+}
 
 export function getNuclearPresetById(id: string): NuclearClusterPreset {
   return NUCLEAR_PRESETS.find((p) => p.id === id) ?? NUCLEAR_PRESETS[0]!;

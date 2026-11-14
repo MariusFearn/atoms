@@ -15,8 +15,56 @@ export interface HydrogenicOrbitalSpec {
 }
 
 export const BOHR_RADIUS_ANGSTROM = 0.529177210903;
-export const HYDROGEN_GROUND_ENERGY_EV = 13.605693122994;
+export const ELECTRON_MASS_MEV_C2 = 0.51099895069;
+export const HYDROGEN_RYDBERG_INF_EV = 13.605693122994;
+export const HYDROGEN_GROUND_ENERGY_EV = HYDROGEN_RYDBERG_INF_EV;
 export const HC_EV_NM = 1239.841984332002;
+
+export type HydrogenIsotopeId = 'H-1' | 'H-2' | 'H-3';
+
+export interface HydrogenIsotopeSpec {
+  id: HydrogenIsotopeId;
+  label: string;
+  neutrons: number;
+  nuclearMassMevC2: number;
+  reducedMassRatio: number;
+}
+
+const H1_NUC_MASS = 938.27208816;
+const H2_NUC_MASS = 1875.61294257;
+const H3_NUC_MASS = 2808.92113298;
+
+export const HYDROGEN_ISOTOPES: readonly HydrogenIsotopeSpec[] = [
+  {
+    id: 'H-1',
+    label: '¹H Protium (1p, 0n)',
+    neutrons: 0,
+    nuclearMassMevC2: H1_NUC_MASS,
+    reducedMassRatio: H1_NUC_MASS / (H1_NUC_MASS + ELECTRON_MASS_MEV_C2),
+  },
+  {
+    id: 'H-2',
+    label: '²H Deuterium (1p, 1n)',
+    neutrons: 1,
+    nuclearMassMevC2: H2_NUC_MASS,
+    reducedMassRatio: H2_NUC_MASS / (H2_NUC_MASS + ELECTRON_MASS_MEV_C2),
+  },
+  {
+    id: 'H-3',
+    label: '³H Tritium (1p, 2n)',
+    neutrons: 2,
+    nuclearMassMevC2: H3_NUC_MASS,
+    reducedMassRatio: H3_NUC_MASS / (H3_NUC_MASS + ELECTRON_MASS_MEV_C2),
+  },
+];
+
+export const LITHIUM_ISOTOPE_SHIFT_NOTE = {
+  transition: '⁶Li vs ⁷Li 2s → 2p D-lines (~670.78 nm)',
+  measuredShiftNm: -0.0158,
+  measuredShiftGhz: 10.53,
+  explanation:
+    'Adding 1 neutron (⁶Li → ⁷Li) shifts the 670.8 nm spectral line by ~0.0158 nm (10.53 GHz) via the standard reduced-mass wobble + nuclear charge-radius volume shift (NIST ASD / Sansonetti et al.).',
+} as const;
 
 export const HYDROGENIC_ORBITALS: readonly HydrogenicOrbitalSpec[] = [
   {
@@ -125,12 +173,15 @@ export function evaluateHydrogenicPsi(
 }
 
 export interface HydrogenSpectralTransition {
+  isotopeId: HydrogenIsotopeId;
+  isotopeLabel: string;
   nUpper: number;
   nLower: number;
   energyUpperEv: number;
   energyLowerEv: number;
   deltaEnergyEv: number;
   wavelengthNm: number;
+  shiftFromProtiumNm: number;
   seriesName: string;
   bandLabel: string;
   swatchHex: string;
@@ -164,13 +215,27 @@ export function wavelengthNmToSwatchHex(wavelengthNm: number): {
 export function computeHydrogenTransition(
   nUpper: number,
   nLower: number,
+  isotopeId: HydrogenIsotopeId = 'H-1',
 ): HydrogenSpectralTransition {
   const safeLower = Math.max(1, Math.min(4, Math.floor(nLower)));
   const safeUpper = Math.max(safeLower + 1, Math.min(6, Math.floor(nUpper)));
-  const energyUpperEv = -HYDROGEN_GROUND_ENERGY_EV / (safeUpper * safeUpper);
-  const energyLowerEv = -HYDROGEN_GROUND_ENERGY_EV / (safeLower * safeLower);
+  const iso =
+    HYDROGEN_ISOTOPES.find((i) => i.id === isotopeId) ?? HYDROGEN_ISOTOPES[0]!;
+  const h1 = HYDROGEN_ISOTOPES[0]!;
+
+  const rydbergIso = HYDROGEN_RYDBERG_INF_EV * iso.reducedMassRatio;
+  const rydbergH1 = HYDROGEN_RYDBERG_INF_EV * h1.reducedMassRatio;
+
+  const energyUpperEv = -rydbergIso / (safeUpper * safeUpper);
+  const energyLowerEv = -rydbergIso / (safeLower * safeLower);
   const deltaEnergyEv = energyUpperEv - energyLowerEv;
   const wavelengthNm = HC_EV_NM / deltaEnergyEv;
+
+  const deltaH1Ev =
+    -rydbergH1 / (safeUpper * safeUpper) - -rydbergH1 / (safeLower * safeLower);
+  const wavelengthH1Nm = HC_EV_NM / deltaH1Ev;
+  const shiftFromProtiumNm = wavelengthNm - wavelengthH1Nm;
+
   const { bandLabel, swatchHex } = wavelengthNmToSwatchHex(wavelengthNm);
 
   const seriesName =
@@ -183,12 +248,15 @@ export function computeHydrogenTransition(
           : 'Brackett series';
 
   return {
+    isotopeId: iso.id,
+    isotopeLabel: iso.label,
     nUpper: safeUpper,
     nLower: safeLower,
     energyUpperEv,
     energyLowerEv,
     deltaEnergyEv,
     wavelengthNm,
+    shiftFromProtiumNm,
     seriesName,
     bandLabel,
     swatchHex,

@@ -7,6 +7,7 @@ import {
   NUCLEAR_PRESETS,
   computeHydrogenTransition,
   evaluateHydrogenicPsi,
+  evaluateMassDefectGravityHypothesis,
   getNuclearPresetById,
   mevToAtomicMassU,
 } from '../src/index.js';
@@ -61,8 +62,20 @@ describe('Nuclear cluster sandbox domain data', () => {
     expect(evaluateHydrogenicPsi('2pz', 0, 0, 2.0)).toBeGreaterThan(0);
     expect(evaluateHydrogenicPsi('2pz', 0, 0, -2.0)).toBeLessThan(0);
 
-    const hAlpha = computeHydrogenTransition(3, 2);
+    const hAlpha = computeHydrogenTransition(3, 2, 'H-1');
     expect(hAlpha.seriesName).toBe('Balmer series');
-    expect(hAlpha.wavelengthNm).toBeCloseTo(656.3, 0);
+    expect(hAlpha.wavelengthNm).toBeCloseTo(656.47, 1);
+
+    const dAlpha = computeHydrogenTransition(3, 2, 'H-2');
+    expect(dAlpha.shiftFromProtiumNm).toBeCloseTo(-0.1786, 3);
+  });
+
+  it('quantifies Equivalence Principle violations under mass-defect gravity hypothesis', () => {
+    const res100 = evaluateMassDefectGravityHypothesis('H-1', 'Fe-56', 1.0);
+    expect(res100.predictedDeltaGOverG).toBeCloseTo(2.0, 4);
+    expect(res100.violationRatio).toBeGreaterThan(1e14);
+
+    const res0 = evaluateMassDefectGravityHypothesis('H-1', 'Fe-56', 0.0);
+    expect(res0.predictedDeltaGOverG).toBe(0);
   });
 });

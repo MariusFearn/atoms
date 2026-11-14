@@ -11,8 +11,10 @@ import {
   Table as TableIcon,
 } from 'lucide-react';
 import {
+  MASS_DEFECT_NUCLIDES,
   NUCLEAR_GUIDED_EXPERIMENTS,
   type NuclearTrajectoryFrame,
+  evaluateMassDefectGravityHypothesis,
   getNuclearPresetById,
 } from '@matterlab/domain';
 import { useLabStore } from '../../state/useLabStore';
@@ -40,6 +42,9 @@ function buildNuclearPolyline(
 
 export const NuclearSandboxWorkspace: React.FC = () => {
   const [showDataTable, setShowDataTable] = useState(false);
+  const [eqNuclideA, setEqNuclideA] = useState('H-1');
+  const [eqNuclideB, setEqNuclideB] = useState('Fe-56');
+  const [eqMassDefectPct, setEqMassDefectPct] = useState(100);
 
   const serviceStatus = useLabStore((s) => s.serviceStatus);
   const isScienceBusy = useLabStore((s) => s.isScienceBusy);
@@ -93,6 +98,11 @@ export const NuclearSandboxWorkspace: React.FC = () => {
   const activeGuided = NUCLEAR_GUIDED_EXPERIMENTS.find(
     (e) => e.id === nuclearGuidedExperimentId,
   );
+  const eqCheck = evaluateMassDefectGravityHypothesis(
+    eqNuclideA,
+    eqNuclideB,
+    eqMassDefectPct / 100,
+  );
   const frames = nuclearResult?.frames ?? [];
   const currentFrame = frames[nuclearPlaybackFrameIndex] ?? frames[0];
 
@@ -102,6 +112,7 @@ export const NuclearSandboxWorkspace: React.FC = () => {
           f.totalEnergyMev,
           f.nuclearEnergyMev,
           f.coulombEnergyMev,
+          f.dipoleEnergyMev,
           f.kineticEnergyMev,
         ]),
       )
@@ -112,6 +123,7 @@ export const NuclearSandboxWorkspace: React.FC = () => {
           f.totalEnergyMev,
           f.nuclearEnergyMev,
           f.coulombEnergyMev,
+          f.dipoleEnergyMev,
           f.kineticEnergyMev,
         ]),
       )
@@ -304,6 +316,67 @@ export const NuclearSandboxWorkspace: React.FC = () => {
             </div>
           )}
 
+          <div className="qc-checkbox-row">
+            <label className="field-label" htmlFor="nuclear-dipole-toggle">
+              Magnetic Dipole Force (1/r⁴)
+            </label>
+            <input
+              id="nuclear-dipole-toggle"
+              type="checkbox"
+              checked={nuclearForceConfig.dipoleEnabled}
+              onChange={(e) =>
+                updateNuclearForceConfig({ dipoleEnabled: e.target.checked })
+              }
+            />
+          </div>
+
+          {nuclearForceConfig.dipoleEnabled && (
+            <>
+              <div className="nuclear-slider-group">
+                <div className="nuclear-slider-label">
+                  <span>Dipole Scale (10^x × μ_N²)</span>
+                  <span className="mono">
+                    {nuclearForceConfig.dipoleLog10Multiplier === 0
+                      ? '1× (Real)'
+                      : `10^${nuclearForceConfig.dipoleLog10Multiplier.toFixed(1)}×`}
+                  </span>
+                </div>
+                <input
+                  aria-label="Magnetic dipole log10 multiplier"
+                  type="range"
+                  min={0}
+                  max={4}
+                  step={0.5}
+                  value={nuclearForceConfig.dipoleLog10Multiplier}
+                  onChange={(e) =>
+                    updateNuclearForceConfig({
+                      dipoleLog10Multiplier: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+              <div className="nuclear-slider-group">
+                <div className="nuclear-slider-label">
+                  <span>Toy α Dipole (real α = 0)</span>
+                  <span className="mono">{nuclearForceConfig.alphaToyDipoleMu.toFixed(1)} μ_N</span>
+                </div>
+                <input
+                  aria-label="Toy alpha dipole moment"
+                  type="range"
+                  min={0}
+                  max={5}
+                  step={0.25}
+                  value={nuclearForceConfig.alphaToyDipoleMu}
+                  onChange={(e) =>
+                    updateNuclearForceConfig({
+                      alphaToyDipoleMu: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+            </>
+          )}
+
           <div className="nuclear-slider-group">
             <div className="nuclear-slider-label">
               <span>Energy Damping (Settle)</span>
@@ -353,6 +426,75 @@ export const NuclearSandboxWorkspace: React.FC = () => {
             <span>{preset.benchmark.stabilitySummary}</span>
             <span className="field-label">Lifetime</span>
             <span>{preset.benchmark.halfLifeNote}</span>
+          </div>
+        </section>
+
+        <section className="panel-section">
+          <div className="panel-heading-row">
+            <h2 className="panel-heading">Equivalence Principle Check</h2>
+            <span className="badge badge-muted">Test A</span>
+          </div>
+          <p className="muted small-text">
+            If gravity came from <strong>nuclear mass defect</strong> instead of total
+            mass-energy, elements with different binding fractions would fall at different
+            rates.
+          </p>
+          <div className="exp-action-row">
+            <select
+              aria-label="Equivalence test nuclide A"
+              className="inspector-input"
+              value={eqNuclideA}
+              onChange={(e) => setEqNuclideA(e.target.value)}
+            >
+              {MASS_DEFECT_NUCLIDES.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.id} ({(n.massDefectFraction * 100).toFixed(2)}%)
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Equivalence test nuclide B"
+              className="inspector-input"
+              value={eqNuclideB}
+              onChange={(e) => setEqNuclideB(e.target.value)}
+            >
+              {MASS_DEFECT_NUCLIDES.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.id} ({(n.massDefectFraction * 100).toFixed(2)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="nuclear-slider-group">
+            <div className="nuclear-slider-label">
+              <span>% Gravity from Mass Defect</span>
+              <span className="mono">{eqMassDefectPct}%</span>
+            </div>
+            <input
+              aria-label="Percent of gravity from mass defect"
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={eqMassDefectPct}
+              onChange={(e) => setEqMassDefectPct(Number(e.target.value))}
+            />
+          </div>
+          <div className="preset-meta-grid small-text" style={{ marginTop: 6 }}>
+            <span className="field-label">Predicted Δg/g</span>
+            <span className="mono">
+              {eqCheck.predictedDeltaGOverG === 0
+                ? '0'
+                : eqCheck.predictedDeltaGOverG.toExponential(2)}
+            </span>
+            <span className="field-label">Lab Limit</span>
+            <span className="mono">&lt; 1.50e-15 (MICROSCOPE)</span>
+            <span className="field-label">Verdict</span>
+            <span>
+              {eqCheck.violationRatio > 1
+                ? `Violates drop tests by ${eqCheck.violationRatio.toExponential(1)}×`
+                : 'Within experimental equivalence limit'}
+            </span>
           </div>
         </section>
 
@@ -620,9 +762,11 @@ export const NuclearSandboxWorkspace: React.FC = () => {
                 </span>
               </div>
               <div className="stat-card">
-                <span className="field-label">Gravity Term</span>
+                <span className="field-label">Gravity / Dipole (1/r⁴)</span>
                 <span className="stat-val mono">
-                  {currentFrame ? `${currentFrame.gravityEnergyMev.toExponential(2)} MeV` : '—'}
+                  {currentFrame
+                    ? `${currentFrame.gravityEnergyMev.toExponential(1)} / ${currentFrame.dipoleEnergyMev.toFixed(2)} MeV`
+                    : '—'}
                 </span>
               </div>
               <div className="stat-card">
@@ -651,6 +795,7 @@ export const NuclearSandboxWorkspace: React.FC = () => {
                         <th>KE (MeV)</th>
                         <th>Coul (MeV)</th>
                         <th>Nuc (MeV)</th>
+                        <th>Dipole (MeV)</th>
                         <th>Total (MeV)</th>
                         <th>Max r (fm)</th>
                       </tr>
@@ -666,6 +811,7 @@ export const NuclearSandboxWorkspace: React.FC = () => {
                           <td>{f.kineticEnergyMev.toFixed(3)}</td>
                           <td>{f.coulombEnergyMev.toFixed(3)}</td>
                           <td>{f.nuclearEnergyMev.toFixed(3)}</td>
+                          <td>{f.dipoleEnergyMev.toFixed(3)}</td>
                           <td>{f.totalEnergyMev.toFixed(3)}</td>
                           <td>{f.maxPairDistanceFm.toFixed(2)}</td>
                         </tr>
@@ -696,6 +842,19 @@ export const NuclearSandboxWorkspace: React.FC = () => {
                       points={buildNuclearPolyline(
                         frames,
                         (f) => f.nuclearEnergyMev,
+                        420,
+                        120,
+                        energyMin,
+                        energyMax,
+                      )}
+                    />
+                    <polyline
+                      fill="none"
+                      stroke="#c084fc"
+                      strokeWidth="1.5"
+                      points={buildNuclearPolyline(
+                        frames,
+                        (f) => f.dipoleEnergyMev,
                         420,
                         120,
                         energyMin,
@@ -744,6 +903,7 @@ export const NuclearSandboxWorkspace: React.FC = () => {
                     <span className="legend-tot">● Total E</span>
                     <span className="legend-err">● Electric (+)</span>
                     <span className="legend-pe">● Nuclear Velcro</span>
+                    <span className="legend-dip">● Dipole</span>
                     <span className="legend-ke">● Kinetic E</span>
                     <span className="muted mono">
                       Range: [{energyMin.toFixed(1)}, {energyMax.toFixed(1)}] MeV

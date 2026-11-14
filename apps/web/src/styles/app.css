@@ -498,6 +498,10 @@ select:focus-visible {
   color: #f87171;
 }
 
+.legend-dip {
+  color: #c084fc;
+}
+
 .nuclear-guided-list {
   display: flex;
   flex-direction: column;

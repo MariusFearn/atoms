@@ -8,6 +8,7 @@ import {
   type ExperimentConfig,
   type ExperimentJobInfo,
   type ExperimentResults,
+  type HydrogenIsotopeId,
   type HydrogenicOrbitalId,
   type Molecule,
   NUCLEAR_GUIDED_EXPERIMENTS,
@@ -144,6 +145,7 @@ export interface LabState {
 
   atomElementSymbol: string;
   atomOrbitalId: HydrogenicOrbitalId;
+  atomIsotopeId: HydrogenIsotopeId;
   atomFieldMode: AtomFieldDisplayMode;
   atomAnimateWave: boolean;
   atomSlicePlane: boolean;
@@ -256,6 +258,7 @@ export interface LabState {
 
   setAtomElementSymbol: (symbol: string) => void;
   setAtomOrbitalId: (orbitalId: HydrogenicOrbitalId) => void;
+  setAtomIsotopeId: (isotopeId: HydrogenIsotopeId) => void;
   setAtomFieldMode: (mode: AtomFieldDisplayMode) => void;
   toggleAtomAnimateWave: () => void;
   toggleAtomSlicePlane: () => void;
@@ -460,6 +463,7 @@ export const useLabStore = create<LabState>((set, get) => ({
 
   atomElementSymbol: 'C',
   atomOrbitalId: '2pz',
+  atomIsotopeId: 'H-1',
   atomFieldMode: 'amplitude-phase',
   atomAnimateWave: true,
   atomSlicePlane: false,
@@ -1821,6 +1825,7 @@ export const useLabStore = create<LabState>((set, get) => ({
 
   setAtomElementSymbol: (atomElementSymbol) => set({ atomElementSymbol }),
   setAtomOrbitalId: (atomOrbitalId) => set({ atomOrbitalId }),
+  setAtomIsotopeId: (atomIsotopeId) => set({ atomIsotopeId }),
   setAtomFieldMode: (atomFieldMode) => set({ atomFieldMode }),
   toggleAtomAnimateWave: () => set((s) => ({ atomAnimateWave: !s.atomAnimateWave })),
   toggleAtomSlicePlane: () => set((s) => ({ atomSlicePlane: !s.atomSlicePlane })),

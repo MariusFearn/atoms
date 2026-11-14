@@ -700,6 +700,7 @@ export interface ApiNuclearParticleDto {
   mass_mev_c2: number;
   position_fm: [number, number, number];
   velocity_c: [number, number, number];
+  dipole_direction?: [number, number, number];
 }
 
 export interface ApiNuclearForceConfigDto {
@@ -710,6 +711,9 @@ export interface ApiNuclearForceConfigDto {
   core_repulsion_range_fm: number;
   gravity_enabled: boolean;
   gravity_log10_multiplier: number;
+  dipole_enabled: boolean;
+  dipole_log10_multiplier: number;
+  alpha_toy_dipole_mu: number;
   damping_per_fc: number;
   timestep_fc: number;
   total_steps: number;
@@ -759,6 +763,7 @@ export interface ApiNuclearSimulationResultDto {
     coulomb_energy_mev: number;
     nuclear_energy_mev: number;
     gravity_energy_mev: number;
+    dipole_energy_mev?: number;
     potential_energy_mev: number;
     total_energy_mev: number;
     min_pair_distance_fm: number;
@@ -777,6 +782,7 @@ export function toApiNuclearParticleDto(p: NuclearParticle): ApiNuclearParticleD
     mass_mev_c2: p.massMevC2,
     position_fm: [...p.positionFm] as [number, number, number],
     velocity_c: [...p.velocityC] as [number, number, number],
+    dipole_direction: p.dipoleDirection ? [...p.dipoleDirection] : [0, 0, 1],
   };
 }
 
@@ -789,6 +795,7 @@ export function fromApiNuclearParticleDto(dto: ApiNuclearParticleDto): NuclearPa
     massMevC2: dto.mass_mev_c2,
     positionFm: [...dto.position_fm] as [number, number, number],
     velocityC: [...dto.velocity_c] as [number, number, number],
+    ...(dto.dipole_direction ? { dipoleDirection: [...dto.dipole_direction] } : {}),
   };
 }
 
@@ -803,6 +810,9 @@ export function toApiNuclearForceConfigDto(
     core_repulsion_range_fm: cfg.coreRepulsionRangeFm,
     gravity_enabled: cfg.gravityEnabled,
     gravity_log10_multiplier: cfg.gravityLog10Multiplier,
+    dipole_enabled: cfg.dipoleEnabled,
+    dipole_log10_multiplier: cfg.dipoleLog10Multiplier,
+    alpha_toy_dipole_mu: cfg.alphaToyDipoleMu,
     damping_per_fc: cfg.dampingPerFc,
     timestep_fc: cfg.timestepFc,
     total_steps: cfg.totalSteps,
@@ -821,6 +831,9 @@ export function fromApiNuclearForceConfigDto(
     coreRepulsionRangeFm: dto.core_repulsion_range_fm,
     gravityEnabled: dto.gravity_enabled,
     gravityLog10Multiplier: dto.gravity_log10_multiplier,
+    dipoleEnabled: dto.dipole_enabled ?? false,
+    dipoleLog10Multiplier: dto.dipole_log10_multiplier ?? 0,
+    alphaToyDipoleMu: dto.alpha_toy_dipole_mu ?? 2.5,
     dampingPerFc: dto.damping_per_fc,
     timestepFc: dto.timestep_fc,
     totalSteps: dto.total_steps,
@@ -883,6 +896,7 @@ export function fromApiNuclearSimulationResultDto(
       coulombEnergyMev: f.coulomb_energy_mev,
       nuclearEnergyMev: f.nuclear_energy_mev,
       gravityEnergyMev: f.gravity_energy_mev,
+      dipoleEnergyMev: f.dipole_energy_mev ?? 0,
       potentialEnergyMev: f.potential_energy_mev,
       totalEnergyMev: f.total_energy_mev,
       minPairDistanceFm: f.min_pair_distance_fm,

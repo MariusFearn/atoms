@@ -1,7 +1,10 @@
 import React from 'react';
 import {
   HYDROGENIC_ORBITALS,
+  HYDROGEN_ISOTOPES,
+  type HydrogenIsotopeId,
   type HydrogenicOrbitalId,
+  LITHIUM_ISOTOPE_SHIFT_NOTE,
   MVP_ELEMENTS,
   computeHydrogenTransition,
 } from '@matterlab/domain';
@@ -11,6 +14,7 @@ import { AtomWaveViewport } from './AtomWaveViewport';
 export const AtomWaveWorkspace: React.FC = () => {
   const atomElementSymbol = useLabStore((s) => s.atomElementSymbol);
   const atomOrbitalId = useLabStore((s) => s.atomOrbitalId);
+  const atomIsotopeId = useLabStore((s) => s.atomIsotopeId);
   const atomFieldMode = useLabStore((s) => s.atomFieldMode);
   const atomAnimateWave = useLabStore((s) => s.atomAnimateWave);
   const atomSlicePlane = useLabStore((s) => s.atomSlicePlane);
@@ -20,6 +24,7 @@ export const AtomWaveWorkspace: React.FC = () => {
 
   const setAtomElementSymbol = useLabStore((s) => s.setAtomElementSymbol);
   const setAtomOrbitalId = useLabStore((s) => s.setAtomOrbitalId);
+  const setAtomIsotopeId = useLabStore((s) => s.setAtomIsotopeId);
   const setAtomFieldMode = useLabStore((s) => s.setAtomFieldMode);
   const toggleAtomAnimateWave = useLabStore((s) => s.toggleAtomAnimateWave);
   const toggleAtomSlicePlane = useLabStore((s) => s.toggleAtomSlicePlane);
@@ -36,6 +41,7 @@ export const AtomWaveWorkspace: React.FC = () => {
   const transition = computeHydrogenTransition(
     atomTransitionUpperN,
     atomTransitionLowerN,
+    atomIsotopeId,
   );
 
   return (
@@ -177,6 +183,23 @@ export const AtomWaveWorkspace: React.FC = () => {
           <div className="playback-bar">
             <div className="playback-controls">
               <h2 className="panel-heading">Hydrogen Standing-Wave Transitions (Spectrum Lines)</h2>
+              <label className="field-label" htmlFor="atom-isotope-select">
+                Isotope
+              </label>
+              <select
+                id="atom-isotope-select"
+                aria-label="Hydrogen isotope for spectral shift"
+                className="compact-select"
+                value={atomIsotopeId}
+                onChange={(e) => setAtomIsotopeId(e.target.value as HydrogenIsotopeId)}
+              >
+                {HYDROGEN_ISOTOPES.map((iso) => (
+                  <option key={iso.id} value={iso.id}>
+                    {iso.label}
+                  </option>
+                ))}
+              </select>
+
               <label className="field-label" htmlFor="atom-upper-n">
                 Upper n
               </label>
@@ -224,7 +247,7 @@ export const AtomWaveWorkspace: React.FC = () => {
                 className="atom-swatch-pill"
                 style={{ borderColor: transition.swatchHex, color: transition.swatchHex }}
               >
-                ● {transition.wavelengthNm.toFixed(1)} nm ({transition.bandLabel})
+                ● {transition.wavelengthNm.toFixed(3)} nm ({transition.bandLabel})
               </span>
             </div>
           </div>
@@ -233,33 +256,39 @@ export const AtomWaveWorkspace: React.FC = () => {
             <div className="observables-stats">
               <div className="stat-card">
                 <span className="field-label">Photon Energy ΔE</span>
-                <span className="stat-val mono">{transition.deltaEnergyEv.toFixed(3)} eV</span>
+                <span className="stat-val mono">{transition.deltaEnergyEv.toFixed(4)} eV</span>
               </div>
               <div className="stat-card">
-                <span className="field-label">Wavelength λ</span>
-                <span className="stat-val mono">{transition.wavelengthNm.toFixed(1)} nm</span>
+                <span className="field-label">Wavelength λ (vacuum)</span>
+                <span className="stat-val mono">{transition.wavelengthNm.toFixed(3)} nm</span>
               </div>
-              <div className="stat-card stat-card-wide">
+              <div className="stat-card">
+                <span className="field-label">Neutron Shift vs ¹H</span>
+                <span className="stat-val mono">
+                  {transition.shiftFromProtiumNm === 0
+                    ? '0.000 nm (ref)'
+                    : `${transition.shiftFromProtiumNm.toFixed(4)} nm (${(transition.shiftFromProtiumNm * 1000).toFixed(1)} pm)`}
+                </span>
+              </div>
+              <div className="stat-card">
                 <span className="field-label">Spectral Series</span>
                 <span className="stat-val">
-                  {transition.seriesName} (n={transition.nUpper} → n={transition.nLower})
+                  {transition.seriesName} (n={transition.nUpper} → {transition.nLower})
                 </span>
               </div>
             </div>
 
             <div className="observables-visual">
-              <p className="small-text" style={{ margin: '4px 0' }}>
-                <strong>Standing waves vs. the video&apos;s claim:</strong> Electrons are not
-                tiny planets orbiting in circles (which classical physics says would radiate and
-                collapse in ~16 picoseconds). Schrödinger&apos;s equation <em>already</em> models
-                atoms as <strong>3D standing waves</strong>—only integer node patterns (1s, 2s,
-                2p, 3d…) fit around the nucleus cleanly, and switching between two standing-wave
-                modes emits exact spectral wavelengths like H-α (656.3 nm, n=3 → 2).
+              <p className="small-text" style={{ margin: '3px 0' }}>
+                <strong>Why neutrons shift spectrum lines (Chapter 12 test):</strong> Switching{' '}
+                <strong>¹H → ²H (Deuterium)</strong> adds 1 neutron, reducing nuclear wobble via
+                the center-of-mass reduced mass (μ = mₑM/(mₑ+M)) and shifting H-α by{' '}
+                <code>−0.1786 nm</code>. Standard quantum mechanics predicts this without needing
+                hidden nuclear-EM geometry.
               </p>
               <p className="small-text muted" style={{ margin: 0 }}>
-                Toggle <strong>Cross-Section Slice</strong> on <strong>2s</strong> to see the
-                nested inner/outer phase shell, or toggle <strong>Magnetic Dipole Field Loops</strong>{' '}
-                to compare the static dipole geometry discussed in the video.
+                <strong>{LITHIUM_ISOTOPE_SHIFT_NOTE.transition}:</strong>{' '}
+                {LITHIUM_ISOTOPE_SHIFT_NOTE.explanation}
               </p>
             </div>
           </div>

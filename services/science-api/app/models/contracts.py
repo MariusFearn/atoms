@@ -458,8 +458,9 @@ class NuclearParticleInput(BaseModel):
     mass_mev_c2: float = Field(gt=0.0, le=50000.0)
     position_fm: tuple[float, float, float]
     velocity_c: tuple[float, float, float]
+    dipole_direction: tuple[float, float, float] = (0.0, 0.0, 1.0)
 
-    @field_validator("position_fm", "velocity_c")
+    @field_validator("position_fm", "velocity_c", "dipole_direction")
     @classmethod
     def check_finite_vec3(
         cls, vec: tuple[float, float, float]
@@ -478,6 +479,9 @@ class NuclearForceConfigInput(BaseModel):
     core_repulsion_range_fm: float = Field(default=1.43, ge=0.3, le=3.5)
     gravity_enabled: bool = True
     gravity_log10_multiplier: float = Field(default=0.0, ge=0.0, le=38.0)
+    dipole_enabled: bool = False
+    dipole_log10_multiplier: float = Field(default=0.0, ge=0.0, le=4.0)
+    alpha_toy_dipole_mu: float = Field(default=2.5, ge=0.0, le=5.0)
     damping_per_fc: float = Field(default=0.0, ge=0.0, le=0.5)
     timestep_fc: float = Field(default=0.25, ge=0.02, le=0.5)
     total_steps: int = Field(default=400, ge=10, le=2000)
@@ -490,6 +494,8 @@ class NuclearForceConfigInput(BaseModel):
         "core_repulsion_mev",
         "core_repulsion_range_fm",
         "gravity_log10_multiplier",
+        "dipole_log10_multiplier",
+        "alpha_toy_dipole_mu",
         "damping_per_fc",
         "timestep_fc",
     )
@@ -534,6 +540,7 @@ class NuclearTrajectoryFrameDto(BaseModel):
     coulomb_energy_mev: float
     nuclear_energy_mev: float
     gravity_energy_mev: float
+    dipole_energy_mev: float = 0.0
     potential_energy_mev: float
     total_energy_mev: float
     min_pair_distance_fm: float

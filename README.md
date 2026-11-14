@@ -55,10 +55,13 @@ The video proposes reinterpreting **$\text{Be-8}$ breakup**, the **$\text{C-12}$
    - **`2. Test the Video Idea: Boost Gravity 10³⁶×`** — Removes the short-range core bumper and amplifies $1/r^2$ gravity by **$10^{36}\times$** on **Carbon-12 (3α)**. Because both electric repulsion ($1/r^2$) and $1/r^2$ gravity scale identically with distance, there is no stable lock radius—the triangle collapses inward to the origin (`collapsed-core`).
    - **`3. Why Be-8 Splits While C-12 Locks`** — Turns standard short-range nuclear attraction + repulsive core back on. Compare **Be-8 (2α)** (`unbound-dissociated`) against **C-12 (3α Lock)** (`bound-oscillating`, equilateral triangle) and toggle **Force Arrows** and **Cluster Edges**.
    - **`4. Stretch the Triangle: Hoyle State`** — Runs the stretched **C-12 Hoyle State** chain with light **Energy Damping** to watch it fold into the compact ground-state triangle.
-4. **Test Additional Clusters & Custom Geometry:**
+   - **`5. Test Magnetic Dipole Balance (C-12)`** — Tests Chapter 14's magnetic-balance idea by enabling **Magnetic Dipole Force (`1/r⁴`)** without short-range nuclear Velcro or a core bumper.
+4. **Test Mass-Defect Gravity vs. Drop Experiments (`Equivalence Principle Check`):**
+   - Compare **¹H** (`0.00%` mass defect) vs. **⁵⁶Fe** (`0.94%` mass defect) or **⁴He** vs. **¹²C** in the sidebar to see how a mass-defect gravity model violates MICROSCOPE / Eöt-Wash free-fall measurements (`< 1.5 × 10⁻¹⁵`).
+5. **Test Additional Clusters & Custom Geometry:**
    - Switch **Cluster Preset** to **Oxygen-16 (4α Tetrahedron)**, **Helium-4 (2p + 2n)**, or **Boron-11 + Proton (`p + ¹¹B`)**, or use **Custom Builder** to add/move protons, neutrons, and alphas and give them custom velocities.
-5. **Check the Standing-Wave Claims in `Atom (Wave Lab)`:**
-   - Switch to the **Atom (`Wave Lab`)** tab in the top bar to see why electrons are *already* modeled as **3D standing waves** in Schrödinger's equation (not classical planet orbits), slice open the `2s` nodal shell, toggle **Magnetic Dipole Field Loops**, and check exact hydrogen spectrum wavelengths.
+6. **Check Standing Waves & Isotope Spectral Shifts in `Atom (Wave Lab)`:**
+   - Switch to the **Atom (`Wave Lab`)** tab in the top bar to see why electrons are *already* modeled as **3D standing waves** in Schrödinger's equation (not classical planet orbits), slice open the `2s` nodal shell, toggle **Magnetic Dipole Field Loops**, and switch isotopes (**¹H** vs **²H** vs **³H**) to see how neutron mass shifts hydrogen spectral lines (`−0.1786 nm` on H-α).
 
 ## Prerequisites & Hardware (No GPU Required)
 

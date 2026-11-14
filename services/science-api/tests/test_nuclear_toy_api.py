@@ -131,3 +131,45 @@ def test_rejects_duplicate_particle_ids() -> None:
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "DUPLICATE_PARTICLE_ID"
+
+
+def test_magnetic_dipole_force_conserves_energy_and_reports_dipole_term() -> None:
+    presets = {p["id"]: p for p in client.get("/api/v1/sandbox/nuclear/presets").json()}
+    c12 = presets["c12-three-alpha"]
+
+    # 1. With repulsive core bumper, dipole force conserves energy accurately
+    cfg_bound = dict(c12["recommended_force_config"])
+    cfg_bound["dipole_enabled"] = True
+    cfg_bound["dipole_log10_multiplier"] = 2.0
+    cfg_bound["alpha_toy_dipole_mu"] = 2.5
+
+    resp_bound = client.post(
+        "/api/v1/sandbox/nuclear/simulate",
+        json={
+            "preset_id": "c12-three-alpha",
+            "particles": c12["particles"],
+            "force_config": cfg_bound,
+        },
+    )
+    assert resp_bound.status_code == 200
+    bound_data = resp_bound.json()
+    assert abs(bound_data["energy_drift_mev"]) < 0.05
+    assert abs(bound_data["frames"][0]["dipole_energy_mev"]) > 0.01
+
+    # 2. Without core bumper (Guided Test 5), 1/r^4 dipole pull collapses to core
+    cfg_nocore = dict(cfg_bound)
+    cfg_nocore["nuclear_attraction_mev"] = 0.0
+    cfg_nocore["core_repulsion_mev"] = 0.0
+    cfg_nocore["gravity_enabled"] = False
+    cfg_nocore["dipole_log10_multiplier"] = 2.5
+
+    resp_nocore = client.post(
+        "/api/v1/sandbox/nuclear/simulate",
+        json={
+            "preset_id": "c12-three-alpha",
+            "particles": c12["particles"],
+            "force_config": cfg_nocore,
+        },
+    )
+    assert resp_nocore.status_code == 200
+    assert resp_nocore.json()["stability_verdict"] == "collapsed-core"
